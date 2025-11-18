@@ -24,6 +24,14 @@ const App = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [consoleLogs, setConsoleLogs] = useState([]);
   const [copyFormat, setCopyFormat] = useState('full'); // 'full', 'lifetime', 'plain'
+  const [messageExpirationEnabled, setMessageExpirationEnabled] = useState(false);
+  const [messageExpirationMinutes, setMessageExpirationMinutes] = useState(60);
+  
+  // Default settings
+  const [defaultKeyExpiryEnabled, setDefaultKeyExpiryEnabled] = useState(true);
+  const [defaultKeyExpiryMinutes, setDefaultKeyExpiryMinutes] = useState(5);
+  const [defaultMessageExpiryEnabled, setDefaultMessageExpiryEnabled] = useState(false);
+  const [defaultMessageExpiryMinutes, setDefaultMessageExpiryMinutes] = useState(30);
 
   // Generate a random private key and derive public key
   const generateKeyPair = () => {
@@ -87,7 +95,7 @@ const App = () => {
   };
 
   // ECIES encryption (Elliptic Curve Integrated Encryption Scheme)
-  const encryptMessage = async (msg, recipientPubKey) => {
+  const encryptMessage = async (msg, recipientPubKey, expirationMinutes = null) => {
     try {
       // Generate ephemeral key pair
       const ephemeralPrivKey = secp256k1.utils.randomPrivateKey();
@@ -102,8 +110,15 @@ const App = () => {
       // Use HMAC-SHA256 as KDF to derive encryption key
       const encryptionKey = hmac(sha256, sharedSecret, new TextEncoder().encode('encryption'));
       
+      // Add expiration metadata if provided
+      let fullMessage = msg;
+      if (expirationMinutes !== null && expirationMinutes > 0) {
+        const timestamp = Date.now();
+        fullMessage = msg + `§${timestamp}:${expirationMinutes}`;
+      }
+      
       // Convert message to bytes
-      const messageBytes = new TextEncoder().encode(msg);
+      const messageBytes = new TextEncoder().encode(fullMessage);
       
       // Simple XOR cipher with the derived key (for production, use AES-GCM)
       const ciphertext = new Uint8Array(messageBytes.length);
@@ -150,7 +165,33 @@ const App = () => {
       }
       
       // Convert back to string
-      return new TextDecoder().decode(messageBytes);
+      const fullMessage = new TextDecoder().decode(messageBytes);
+      
+      // Check for expiration metadata
+      const separatorIndex = fullMessage.lastIndexOf('§');
+      if (separatorIndex !== -1) {
+        const message = fullMessage.substring(0, separatorIndex);
+        const metadata = fullMessage.substring(separatorIndex + 1);
+        
+        // Parse metadata: timestamp:minutes
+        const metaParts = metadata.split(':');
+        if (metaParts.length === 2) {
+          const timestamp = parseInt(metaParts[0]);
+          const lifetimeMinutes = parseInt(metaParts[1]);
+          
+          if (!isNaN(timestamp) && !isNaN(lifetimeMinutes)) {
+            const expiresAt = timestamp + (lifetimeMinutes * 60000);
+            
+            if (Date.now() > expiresAt) {
+              return 'Message Expired';
+            }
+          }
+        }
+        
+        return message;
+      }
+      
+      return fullMessage;
     } catch (e) {
       return 'Decryption failed: ' + e.message;
     }
@@ -269,7 +310,8 @@ const App = () => {
         recipient.publicKey.match(/.{1,2}/g).map(byte => parseInt(byte, 16))
       );
       
-      const encrypted = await encryptMessage(message, recipientPubKey);
+      const expirationMins = messageExpirationEnabled ? messageExpirationMinutes : null;
+      const encrypted = await encryptMessage(message, recipientPubKey, expirationMins);
       setEncryptedMessage(encrypted);
     } catch (e) {
       setEncryptedMessage('Encryption failed: ' + e.message);
@@ -384,8 +426,8 @@ const App = () => {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showContactForm, setShowContactForm] = useState(false);
   const [newProfileName, setNewProfileName] = useState('');
-  const [expirationEnabled, setExpirationEnabled] = useState(true);
-  const [expirationMinutes, setExpirationMinutes] = useState(30);
+  const [expirationEnabled, setExpirationEnabled] = useState(defaultKeyExpiryEnabled);
+  const [expirationMinutes, setExpirationMinutes] = useState(defaultKeyExpiryMinutes);
   const [newContactName, setNewContactName] = useState('');
   const [newContactPubKey, setNewContactPubKey] = useState('');
   const [newContactAddress, setNewContactAddress] = useState('');
@@ -463,7 +505,13 @@ const App = () => {
                 <h2 className="text-xl font-semibold text-white">My Profiles</h2>
               </div>
               <button
-                onClick={() => setShowCreateForm(!showCreateForm)}
+                onClick={() => {
+                  if (!showCreateForm) {
+                    setExpirationEnabled(defaultKeyExpiryEnabled);
+                    setExpirationMinutes(defaultKeyExpiryMinutes);
+                  }
+                  setShowCreateForm(!showCreateForm);
+                }}
                 style={{ backgroundColor: currentTheme.primary }}
                 className="p-2 rounded-lg transition-colors hover:opacity-90"
               >
@@ -603,7 +651,13 @@ const App = () => {
             {/* Tabs */}
             <div className="bg-white/10 backdrop-blur-lg rounded-xl p-2 border border-purple-500/30 flex gap-2" style={{ borderColor: currentTheme.primary + '50' }}>
               <button
-                onClick={() => setActiveTab('encrypt')}
+                onClick={() => {
+                  if (activeTab !== 'encrypt') {
+                    setMessageExpirationEnabled(defaultMessageExpiryEnabled);
+                    setMessageExpirationMinutes(defaultMessageExpiryMinutes);
+                  }
+                  setActiveTab('encrypt');
+                }}
                 style={{
                   backgroundColor: activeTab === 'encrypt' ? currentTheme.primary : 'transparent',
                   color: activeTab === 'encrypt' ? 'white' : currentTheme.primary
@@ -646,6 +700,31 @@ const App = () => {
                   placeholder="Enter message to encrypt..."
                   className="w-full px-4 py-3 bg-white/10 border border-purple-500/30 rounded-lg text-white placeholder-purple-300/50 h-32 resize-none"
                 />
+                <div className="p-4 bg-black/20 rounded-lg space-y-3">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={messageExpirationEnabled}
+                      onChange={(e) => setMessageExpirationEnabled(e.target.checked)}
+                      className="w-4 h-4"
+                      style={{ accentColor: currentTheme.primary }}
+                    />
+                    <span className="text-white">Message expires after</span>
+                  </div>
+                  {messageExpirationEnabled && (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        value={messageExpirationMinutes}
+                        onChange={(e) => setMessageExpirationMinutes(Math.max(1, parseInt(e.target.value) || 60))}
+                        className="w-24 px-3 py-2 bg-white/10 border border-purple-500/30 rounded-lg text-white"
+                        style={{ borderColor: currentTheme.primary + '50' }}
+                        min="1"
+                      />
+                      <span className="text-white">minutes</span>
+                    </div>
+                  )}
+                </div>
                 <button
                   onClick={handleEncrypt}
                   style={{ backgroundColor: currentTheme.primary }}
@@ -958,6 +1037,68 @@ const App = () => {
                         {themes[themeName].name}
                       </button>
                     ))}
+                  </div>
+                </div>
+
+                {/* Default Settings */}
+                <div className="p-6 border-b border-white/10">
+                  <h3 className="text-lg font-semibold text-white mb-4">Default Settings</h3>
+                  <div className="space-y-4">
+                    {/* Key Expiry Defaults */}
+                    <div className="p-4 bg-white/5 rounded-lg space-y-3">
+                      <h4 className="text-white font-medium">Profile Key Expiry</h4>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={defaultKeyExpiryEnabled}
+                          onChange={(e) => setDefaultKeyExpiryEnabled(e.target.checked)}
+                          className="w-4 h-4"
+                          style={{ accentColor: currentTheme.primary }}
+                        />
+                        <span className="text-gray-300">Enable by default</span>
+                      </div>
+                      {defaultKeyExpiryEnabled && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-300">Default lifetime:</span>
+                          <input
+                            type="number"
+                            value={defaultKeyExpiryMinutes}
+                            onChange={(e) => setDefaultKeyExpiryMinutes(Math.max(1, parseInt(e.target.value) || 5))}
+                            className="w-20 px-3 py-1 bg-white/10 border border-white/20 rounded text-white"
+                            min="1"
+                          />
+                          <span className="text-gray-300">minutes</span>
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Message Expiry Defaults */}
+                    <div className="p-4 bg-white/5 rounded-lg space-y-3">
+                      <h4 className="text-white font-medium">Message Expiry</h4>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={defaultMessageExpiryEnabled}
+                          onChange={(e) => setDefaultMessageExpiryEnabled(e.target.checked)}
+                          className="w-4 h-4"
+                          style={{ accentColor: currentTheme.primary }}
+                        />
+                        <span className="text-gray-300">Enable by default</span>
+                      </div>
+                      {defaultMessageExpiryEnabled && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-300">Default lifetime:</span>
+                          <input
+                            type="number"
+                            value={defaultMessageExpiryMinutes}
+                            onChange={(e) => setDefaultMessageExpiryMinutes(Math.max(1, parseInt(e.target.value) || 30))}
+                            className="w-20 px-3 py-1 bg-white/10 border border-white/20 rounded text-white"
+                            min="1"
+                          />
+                          <span className="text-gray-300">minutes</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
 
