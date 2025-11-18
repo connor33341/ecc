@@ -71,6 +71,8 @@ export function WebChatPanel({
                 onLogout={handleLogout}
                 activeProfile={activeProfile}
                 signChallenge={signChallenge}
+                isAuthenticated={true}
+                authData={authData}
               />
             </div>
             <div className="flex-1 overflow-hidden">

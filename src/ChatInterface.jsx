@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Users, Circle } from 'lucide-react';
+import { Send, Users, Circle, LogOut } from 'lucide-react';
 
 const WORKER_URL = 'https://probable-space-eureka-g4q4pq5r4p5h99rp-8787.app.github.dev'; // Update this with your worker URL
 
@@ -39,6 +39,7 @@ export function ChatInterface({
   const normalizedAddress = address?.toLowerCase();
   
   const [ws, setWs] = useState(null);
+  const wsRef = useRef(null); // Keep ref to current WebSocket
   const [isConnected, setIsConnected] = useState(false);
   const [messages, setMessages] = useState([]);
   const [messageInput, setMessageInput] = useState('');
@@ -60,11 +61,11 @@ export function ChatInterface({
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }
-      if (ws) {
-        ws.close();
+      if (wsRef.current) {
+        wsRef.current.close();
       }
     };
-  }, [sessionId, address]);
+  }, [sessionId]); // Only reconnect when sessionId changes, not address
 
   useEffect(() => {
     scrollToBottom();
@@ -79,6 +80,13 @@ export function ChatInterface({
   };
 
   const connectWebSocket = () => {
+    // Close existing connection if any
+    if (wsRef.current) {
+      console.log('Closing existing WebSocket connection');
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+
     const wsUrl = WORKER_URL.replace('http', 'ws') + `/ws?sessionId=${sessionId}`;
     const websocket = new WebSocket(wsUrl);
 
@@ -119,6 +127,7 @@ export function ChatInterface({
     };
 
     setWs(websocket);
+    wsRef.current = websocket; // Keep ref to current WebSocket
   };
 
   const handleWebSocketMessage = (data) => {

@@ -3,11 +3,9 @@ import { User, LogOut, AlertCircle } from 'lucide-react';
 
 const WORKER_URL = 'https://probable-space-eureka-g4q4pq5r4p5h99rp-8787.app.github.dev'; // Update this with your worker URL
 
-export function WalletAuth({ onAuthSuccess, onLogout, activeProfile, signChallenge }) {
+export function WalletAuth({ onAuthSuccess, onLogout, activeProfile, signChallenge, isAuthenticated, authData }) {
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState('');
-  const [address, setAddress] = useState(null);
-  const [sessionId, setSessionId] = useState(null);
 
   // Don't use localStorage - each tab/instance should have its own session
   // useEffect removed to prevent session conflicts
@@ -48,8 +46,6 @@ export function WalletAuth({ onAuthSuccess, onLogout, activeProfile, signChallen
 
       if (verifyData.success) {
         // Don't store in localStorage to avoid conflicts between tabs
-        setAddress(activeProfile.address);
-        setSessionId(sessionId);
         onAuthSuccess({ address: activeProfile.address, sessionId });
       } else {
         throw new Error(verifyData.error || 'Authentication failed');
@@ -64,29 +60,27 @@ export function WalletAuth({ onAuthSuccess, onLogout, activeProfile, signChallen
 
   const disconnect = async () => {
     try {
-      if (sessionId) {
+      if (authData?.sessionId) {
         await fetch(`${WORKER_URL}/api/auth/logout`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sessionId }),
+          body: JSON.stringify({ sessionId: authData.sessionId }),
         });
       }
 
-      setAddress(null);
-      setSessionId(null);
       onLogout();
     } catch (err) {
       console.error('Logout error:', err);
     }
   };
 
-  if (address) {
+  if (isAuthenticated && authData) {
     return (
       <div className="flex items-center gap-4 p-4 bg-gray-800 rounded-lg">
         <div className="flex items-center gap-2 flex-1">
           <User className="w-5 h-5 text-green-500" />
           <span className="text-sm text-gray-300 font-mono">
-            {address.slice(0, 8)}...{address.slice(-6)}
+            {authData.address.slice(0, 8)}...{authData.address.slice(-6)}
           </span>
         </div>
         <button
