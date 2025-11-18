@@ -2,3 +2,5 @@ node_modules
 .pnpm_store
 ref.txt
 dist
+.wrangler
+.env

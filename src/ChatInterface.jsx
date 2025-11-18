@@ -35,6 +35,9 @@ export function ChatInterface({
   contactProfiles,
   activeProfile
 }) {
+  // Normalize address to lowercase to match backend
+  const normalizedAddress = address?.toLowerCase();
+  
   const [ws, setWs] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
   const [messages, setMessages] = useState([]);
@@ -42,13 +45,21 @@ export function ChatInterface({
   const [selectedRecipient, setSelectedRecipient] = useState('');
   const [onlineUsers, setOnlineUsers] = useState([]);
   const messagesEndRef = useRef(null);
+  const reconnectTimeoutRef = useRef(null);
+  const shouldReconnectRef = useRef(true);
 
   useEffect(() => {
     if (!sessionId || !address) return;
 
+    shouldReconnectRef.current = true;
     connectWebSocket();
 
     return () => {
+      // Clean up on unmount
+      shouldReconnectRef.current = false;
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
       if (ws) {
         ws.close();
       }
@@ -58,6 +69,10 @@ export function ChatInterface({
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  useEffect(() => {
+    console.log('Online users state updated:', onlineUsers, 'Count:', onlineUsers.length);
+  }, [onlineUsers]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -81,22 +96,33 @@ export function ChatInterface({
       console.log('WebSocket disconnected');
       setIsConnected(false);
 
-      // Reconnect after 3 seconds
-      setTimeout(() => {
-        if (sessionId) {
-          connectWebSocket();
+      // Only reconnect if we should (not disconnected intentionally)
+      if (shouldReconnectRef.current && sessionId) {
+        // Clear any existing timeout
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
         }
-      }, 3000);
+        // Reconnect after 3 seconds
+        reconnectTimeoutRef.current = setTimeout(() => {
+          console.log('Attempting to reconnect...');
+          connectWebSocket();
+        }, 3000);
+      }
     };
 
     websocket.onerror = (error) => {
       console.error('WebSocket error:', error);
+      // Don't reconnect on authentication errors
+      if (error.message && error.message.includes('Authentication')) {
+        shouldReconnectRef.current = false;
+      }
     };
 
     setWs(websocket);
   };
 
   const handleWebSocketMessage = (data) => {
+    console.log('Received WebSocket message:', data);
     switch (data.type) {
       case 'chat_message':
         addMessage(data.message);
@@ -105,13 +131,24 @@ export function ChatInterface({
         addMessage(data.message);
         break;
       case 'online_users':
+        console.log('Setting online users to:', data.users, 'Count:', data.users.length);
         setOnlineUsers(data.users);
         break;
       case 'user_connected':
-        setOnlineUsers((prev) => [...new Set([...prev, data.address])]);
+        console.log('User connected:', data.address);
+        setOnlineUsers((prev) => {
+          const updated = [...new Set([...prev, data.address])];
+          console.log('Previous count:', prev.length, 'New count:', updated.length);
+          return updated;
+        });
         break;
       case 'user_disconnected':
-        setOnlineUsers((prev) => prev.filter((u) => u !== data.address));
+        console.log('User disconnected:', data.address);
+        setOnlineUsers((prev) => {
+          const updated = prev.filter((u) => u !== data.address);
+          console.log('Previous count:', prev.length, 'New count:', updated.length);
+          return updated;
+        });
         break;
       case 'pong':
         // Handle ping/pong
@@ -122,6 +159,12 @@ export function ChatInterface({
   };
 
   const addMessage = (message) => {
+    console.log('Adding message:', { 
+      from: message.from, 
+      to: message.to, 
+      myAddress: normalizedAddress,
+      isMyMessage: message.from.toLowerCase() === normalizedAddress 
+    });
     setMessages((prev) => [...prev, message]);
   };
 
@@ -130,34 +173,42 @@ export function ChatInterface({
 
     try {
       let content = messageInput;
+      let isEncrypted = false;
       
       // If recipient is selected and encryptMessage function is provided, encrypt the message
-      if (selectedRecipient && encryptMessage) {
+      if (selectedRecipient && selectedRecipient.trim() !== '' && encryptMessage) {
         try {
           // Find recipient in contacts by their address
           const recipient = contactProfiles.find(
             p => p.address.toLowerCase() === selectedRecipient.toLowerCase()
           );
           
-          if (recipient) {
+          if (recipient && recipient.publicKey) {
+            console.log('Encrypting message for:', recipient.address);
+            // Pass the publicKey string directly to encryptMessage
             content = await encryptMessage(messageInput, recipient.publicKey);
+            isEncrypted = true;
+            console.log('Message encrypted successfully');
           } else {
-            // If not in contacts, send unencrypted with warning
-            console.warn('Recipient not in contacts, sending unencrypted');
+            console.warn('Recipient not in contacts or missing public key');
+            alert('Recipient must be in your contacts to send encrypted messages.');
+            return;
           }
         } catch (err) {
           console.error('Encryption error:', err);
-          alert('Failed to encrypt message. Sending unencrypted.');
+          alert('Failed to encrypt message: ' + err.message);
+          return;
         }
       }
 
       const message = {
         type: 'chat_message',
-        to: selectedRecipient,
+        to: selectedRecipient || '',
         content: content,
-        signature: '', // You can add message signing here if needed
+        signature: '',
       };
 
+      console.log('Sending message:', { to: message.to, encrypted: isEncrypted, from: address });
       ws.send(JSON.stringify(message));
       setMessageInput('');
     } catch (err) {
@@ -177,20 +228,23 @@ export function ChatInterface({
   };
 
   const isMyMessage = (message) => {
-    return message.from.toLowerCase() === address.toLowerCase();
+    return message.from.toLowerCase() === normalizedAddress;
   };
 
   const tryDecryptMessage = async (content, message) => {
     if (!decryptMessage || !activeProfile) return content;
 
     // Only try to decrypt if this message is directed to us
-    if (message.to && message.to.toLowerCase() === address.toLowerCase()) {
+    if (message.to && message.to.trim() !== '' && message.to.toLowerCase() === normalizedAddress) {
       try {
+        console.log('Attempting to decrypt message from:', message.from);
+        // Pass the privateKey string directly to decryptMessage
         const decrypted = await decryptMessage(content, activeProfile.privateKey);
+        console.log('Message decrypted successfully');
         return decrypted;
       } catch (err) {
         console.error('Decryption failed:', err);
-        return '[Encrypted - Unable to Decrypt]';
+        return '[🔒 Encrypted - Unable to Decrypt]';
       }
     }
 
@@ -268,13 +322,14 @@ export function ChatInterface({
             className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded text-gray-300 text-sm focus:outline-none focus:border-blue-500"
           >
             <option value="">Broadcast to all</option>
-            {onlineUsers
-              .filter((user) => user.toLowerCase() !== address.toLowerCase())
-              .map((user) => (
-                <option key={user} value={user}>
-                  {formatAddress(user)} (Direct)
+            {contactProfiles && contactProfiles.map((contact) => {
+              const isOnline = onlineUsers.some(u => u.toLowerCase() === contact.address.toLowerCase());
+              return (
+                <option key={contact.address} value={contact.address}>
+                  {contact.name || formatAddress(contact.address)} {isOnline ? '🟢' : '⚫'}
                 </option>
-              ))}
+              );
+            })}
           </select>
         </div>
 

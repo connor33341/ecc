@@ -266,6 +266,8 @@ const App = () => {
     };
     
     setMyProfiles(prev => [...prev, profile]);
+    // Auto-select the newly created profile
+    setActiveProfile(profile);
     return profile;
   };
 

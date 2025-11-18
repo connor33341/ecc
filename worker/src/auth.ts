@@ -66,7 +66,7 @@ export class AuthManager {
 
       // Create session
       this.sessions.set(sessionId, {
-        address: address,
+        address: address.toLowerCase(), // Normalize to lowercase
         authenticated: true,
         timestamp: Date.now(),
       });
@@ -74,7 +74,7 @@ export class AuthManager {
       // Clean up challenge
       this.challenges.delete(sessionId);
 
-      return { success: true, address: address };
+      return { success: true, address: address.toLowerCase() };
     } catch (error) {
       console.error('Proof verification error:', error);
       return { success: false, error: 'Invalid proof format' };

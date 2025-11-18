@@ -87,18 +87,18 @@ export class ChatRoom extends DurableObject {
       this.sessions.delete(sessionId);
     });
 
-    // Notify others of new connection
-    this.broadcast({
-      type: 'user_connected',
-      address: address.toLowerCase(),
-    }, sessionId);
-
-    // Send current online users to the new connection
+    // Send current online users to the new connection (including themselves)
     const onlineUsers = Array.from(this.sessions.values()).map(s => s.address);
     server.send(JSON.stringify({
       type: 'online_users',
       users: onlineUsers,
     }));
+
+    // Notify others of new connection (excluding the new user)
+    this.broadcast({
+      type: 'user_connected',
+      address: address.toLowerCase(),
+    }, sessionId);
 
     return new Response(null, {
       status: 101,
@@ -150,7 +150,7 @@ export class ChatRoom extends DurableObject {
     }
 
     // If message has a specific recipient, send only to them
-    if (chatMessage.to) {
+    if (chatMessage.to && chatMessage.to.trim() !== '') {
       const recipientSession = Array.from(this.sessions.values()).find(
         s => s.address === chatMessage.to
       );
@@ -168,22 +168,22 @@ export class ChatRoom extends DurableObject {
         message: chatMessage,
       }));
     } else {
-      // Broadcast to all
+      // Broadcast to all (including sender)
       this.broadcast({
         type: 'chat_message',
         message: chatMessage,
-      });
+      }); // Don't pass excludeSessionId to include everyone
     }
   }
 
   /**
-   * Broadcast a message to all connected clients except the sender
+   * Broadcast a message to all connected clients
    */
   private broadcast(message: any, excludeSessionId?: string) {
     const messageStr = JSON.stringify(message);
 
     for (const [sessionId, session] of this.sessions.entries()) {
-      if (sessionId !== excludeSessionId) {
+      if (!excludeSessionId || sessionId !== excludeSessionId) {
         try {
           session.webSocket.send(messageStr);
         } catch (error) {

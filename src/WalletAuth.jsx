@@ -9,35 +9,8 @@ export function WalletAuth({ onAuthSuccess, onLogout, activeProfile, signChallen
   const [address, setAddress] = useState(null);
   const [sessionId, setSessionId] = useState(null);
 
-  useEffect(() => {
-    // Check for existing session
-    const storedSessionId = localStorage.getItem('ecc_session_id');
-    const storedAddress = localStorage.getItem('ecc_address');
-
-    if (storedSessionId && storedAddress) {
-      validateSession(storedSessionId, storedAddress);
-    }
-  }, []);
-
-  const validateSession = async (sessionId, address) => {
-    try {
-      const response = await fetch(`${WORKER_URL}/api/auth/session?sessionId=${sessionId}`);
-      const data = await response.json();
-
-      if (data.valid) {
-        setAddress(address);
-        setSessionId(sessionId);
-        onAuthSuccess({ address, sessionId });
-      } else {
-        localStorage.removeItem('ecc_session_id');
-        localStorage.removeItem('ecc_address');
-      }
-    } catch (err) {
-      console.error('Session validation error:', err);
-      localStorage.removeItem('ecc_session_id');
-      localStorage.removeItem('ecc_address');
-    }
-  };
+  // Don't use localStorage - each tab/instance should have its own session
+  // useEffect removed to prevent session conflicts
 
   const connectProfile = async () => {
     setIsConnecting(true);
@@ -74,10 +47,7 @@ export function WalletAuth({ onAuthSuccess, onLogout, activeProfile, signChallen
       const verifyData = await verifyResponse.json();
 
       if (verifyData.success) {
-        // Store session
-        localStorage.setItem('ecc_session_id', sessionId);
-        localStorage.setItem('ecc_address', activeProfile.address);
-
+        // Don't store in localStorage to avoid conflicts between tabs
         setAddress(activeProfile.address);
         setSessionId(sessionId);
         onAuthSuccess({ address: activeProfile.address, sessionId });
@@ -101,9 +71,6 @@ export function WalletAuth({ onAuthSuccess, onLogout, activeProfile, signChallen
           body: JSON.stringify({ sessionId }),
         });
       }
-
-      localStorage.removeItem('ecc_session_id');
-      localStorage.removeItem('ecc_address');
 
       setAddress(null);
       setSessionId(null);
