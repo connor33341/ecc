@@ -21,6 +21,8 @@ const App = () => {
   const [copiedId, setCopiedId] = useState(null);
   const [activeTab, setActiveTab] = useState('encrypt');
   const [theme, setTheme] = useState('purple');
+  const [showSettings, setShowSettings] = useState(false);
+  const [consoleLogs, setConsoleLogs] = useState([]);
 
   // Generate a random private key and derive public key
   const generateKeyPair = () => {
@@ -32,7 +34,21 @@ const App = () => {
   // Derive address from public key (compressed format with base58)
   const deriveAddress = (publicKey) => {
     // Public key is already in compressed format (33 bytes)
-    return bs58.encode(publicKey);
+    console.log('Generating address from public key:', Array.from(publicKey).map(b => b.toString(16).padStart(2, '0')).join(''));
+    const address = bs58.encode(publicKey);
+    console.log('Generated address:', address);
+    
+    // Validate that the address doesn't contain invalid characters
+    const base58Chars = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+    for (let char of address) {
+      if (!base58Chars.includes(char)) {
+        console.error('Invalid character in generated address:', char, 'Address:', address);
+        console.error('bs58 library:', bs58);
+        throw new Error(`Generated address contains invalid Base58 character: '${char}'. This should never happen with the bs58 library!`);
+      }
+    }
+    
+    return address;
   };
 
   // Derive public key from address
@@ -258,10 +274,41 @@ const App = () => {
     }
   };
 
-  const copyToClipboard = (text, id) => {
-    navigator.clipboard.writeText(text);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
+  const copyToClipboard = async (text, id) => {
+    console.log('Copying to clipboard:', text);
+    console.log('Text length:', text.length);
+    console.log('Contains uppercase:', /[A-Z]/.test(text));
+    
+    try {
+      // Try modern clipboard API first
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        // Fallback for older browsers or iOS issues
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        
+        try {
+          document.execCommand('copy');
+          textArea.remove();
+        } catch (err) {
+          console.error('Fallback copy failed:', err);
+          textArea.remove();
+        }
+      }
+      
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+      console.log('Copy completed successfully');
+    } catch (err) {
+      console.error('Copy failed:', err);
+    }
   };
 
   const getRemainingTime = (expiresAt) => {
@@ -274,9 +321,40 @@ const App = () => {
 
   useEffect(() => {
     const interval = setInterval(() => {
+      // Remove expired profiles and contacts
       setMyProfiles(prev => prev.filter(p => !p.expiresAt || p.expiresAt > Date.now()));
       setContactProfiles(prev => prev.filter(c => !c.expiresAt || c.expiresAt > Date.now()));
     }, 1000);
+    
+    // Clean up any profiles with invalid Base58 addresses on mount
+    const base58Chars = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+    const isValidBase58 = (str) => {
+      if (!str) return false;
+      for (let char of str) {
+        if (!base58Chars.includes(char)) {
+          console.warn(`Invalid Base58 character '${char}' found in address: ${str}`);
+          return false;
+        }
+      }
+      return true;
+    };
+    
+    setMyProfiles(prev => {
+      const invalid = prev.filter(p => !isValidBase58(p.address));
+      if (invalid.length > 0) {
+        console.warn('Removed invalid profiles:', invalid.map(p => p.name));
+      }
+      return prev.filter(p => isValidBase58(p.address));
+    });
+    
+    setContactProfiles(prev => {
+      const invalid = prev.filter(c => !isValidBase58(c.address));
+      if (invalid.length > 0) {
+        console.warn('Removed invalid contacts:', invalid.map(c => c.name));
+      }
+      return prev.filter(c => isValidBase58(c.address));
+    });
+    
     return () => clearInterval(interval);
   }, []);
 
@@ -303,13 +381,52 @@ const App = () => {
 
   const currentTheme = themes[theme];
 
+  // Capture console logs
+  useEffect(() => {
+    const originalLog = console.log;
+    const originalError = console.error;
+    const originalWarn = console.warn;
+
+    console.log = (...args) => {
+      setConsoleLogs(prev => [...prev.slice(-99), { type: 'log', message: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '), time: new Date().toLocaleTimeString() }]);
+      originalLog.apply(console, args);
+    };
+
+    console.error = (...args) => {
+      setConsoleLogs(prev => [...prev.slice(-99), { type: 'error', message: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '), time: new Date().toLocaleTimeString() }]);
+      originalError.apply(console, args);
+    };
+
+    console.warn = (...args) => {
+      setConsoleLogs(prev => [...prev.slice(-99), { type: 'warn', message: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '), time: new Date().toLocaleTimeString() }]);
+      originalWarn.apply(console, args);
+    };
+
+    return () => {
+      console.log = originalLog;
+      console.error = originalError;
+      console.warn = originalWarn;
+    };
+  }, []);
+
   return (
     <div className={`min-h-screen bg-gradient-to-br ${currentTheme.gradient} p-4`}>
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-8 pt-8">
-          <div className="flex items-center justify-center gap-3 mb-3">
+          <div className="flex items-center justify-center gap-3 mb-3 relative">
             <KeyRound className="w-10 h-10" style={{ color: currentTheme.primary }} />
             <h1 className="text-4xl font-bold text-white">ECC secp256k1 Messenger</h1>
+            <button
+              onClick={() => setShowSettings(true)}
+              className="absolute right-0 p-2 rounded-lg transition-all hover:opacity-80"
+              style={{ backgroundColor: currentTheme.primary }}
+              title="Settings"
+            >
+              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </button>
           </div>
           <p className="text-purple-300" style={{ color: currentTheme.primary }}>Secure end-to-end encrypted messaging with @noble/secp256k1</p>
         </div>
@@ -405,7 +522,14 @@ const App = () => {
                   <div className="text-xs space-y-1">
                     <div className="flex items-center gap-2">
                       <span className="text-purple-300" style={{ color: currentTheme.primary }}>Address:</span>
-                      <span className="text-white font-mono text-xs">{profile.address.slice(0, 10)}...</span>
+                      <input
+                        type="text"
+                        value={profile.address}
+                        readOnly
+                        onClick={(e) => e.target.select()}
+                        className="text-white font-mono text-xs bg-transparent border-none outline-none w-24 cursor-pointer"
+                        title="Click to select, then manually copy"
+                      />
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -744,27 +868,82 @@ const App = () => {
           </div>
         </div>
 
-        {/* Theme Selector */}
-        <div className="mt-6 bg-white/10 backdrop-blur-lg rounded-xl p-4 border border-white/20">
-          <div className="flex items-center justify-center gap-3 flex-wrap">
-            <span className="text-white text-sm font-semibold">Theme:</span>
-            {Object.keys(themes).map(themeName => (
-              <button
-                key={themeName}
-                onClick={() => setTheme(themeName)}
-                style={{
-                  backgroundColor: theme === themeName ? themes[themeName].primary : 'rgba(255,255,255,0.05)',
-                  color: theme === themeName ? 'white' : 'rgba(255,255,255,0.7)'
-                }}
-                className={`px-4 py-2 rounded-lg font-medium transition-all ${
-                  theme === themeName ? 'shadow-lg scale-105' : 'hover:bg-white/10'
-                }`}
-              >
-                {themes[themeName].name}
-              </button>
-            ))}
+        {/* Settings Modal */}
+        {showSettings && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowSettings(false)}>
+            <div className="bg-slate-900 rounded-2xl border border-white/20 max-w-4xl w-full max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+              {/* Header */}
+              <div className="flex items-center justify-between p-6 border-b border-white/10">
+                <h2 className="text-2xl font-bold text-white">Settings</h2>
+                <button
+                  onClick={() => setShowSettings(false)}
+                  className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+                >
+                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="overflow-y-auto max-h-[calc(90vh-80px)]">
+                {/* Theme Selector */}
+                <div className="p-6 border-b border-white/10">
+                  <h3 className="text-lg font-semibold text-white mb-4">Theme</h3>
+                  <div className="flex flex-wrap gap-3">
+                    {Object.keys(themes).map(themeName => (
+                      <button
+                        key={themeName}
+                        onClick={() => setTheme(themeName)}
+                        style={{
+                          backgroundColor: theme === themeName ? themes[themeName].primary : 'rgba(255,255,255,0.05)',
+                          color: theme === themeName ? 'white' : 'rgba(255,255,255,0.7)'
+                        }}
+                        className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                          theme === themeName ? 'shadow-lg scale-105' : 'hover:bg-white/10'
+                        }`}
+                      >
+                        {themes[themeName].name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Console Logs */}
+                <div className="p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold text-white">Console</h3>
+                    <button
+                      onClick={() => setConsoleLogs([])}
+                      className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-white text-sm transition-colors"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  <div className="bg-black/50 rounded-lg p-4 font-mono text-xs max-h-96 overflow-y-auto">
+                    {consoleLogs.length === 0 ? (
+                      <div className="text-gray-500">No logs yet...</div>
+                    ) : (
+                      consoleLogs.map((log, i) => (
+                        <div
+                          key={i}
+                          className={`mb-2 pb-2 border-b border-white/5 ${
+                            log.type === 'error' ? 'text-red-400' :
+                            log.type === 'warn' ? 'text-yellow-400' :
+                            'text-green-400'
+                          }`}
+                        >
+                          <span className="text-gray-500">[{log.time}]</span>
+                          <span className="ml-2 font-semibold">[{log.type.toUpperCase()}]</span>
+                          <div className="text-white mt-1 break-all">{log.message}</div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
