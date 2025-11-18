@@ -1,0 +1,24 @@
+{
+  "name": "ecc-messenger",
+  "version": "1.0.0",
+  "description": "ECC secp256k1 Messenger",
+  "scripts": {
+    "dev": "node build.js --dev",
+    "build": "node build.js",
+    "start": "node build.js --dev"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@noble/hashes": "^1.3.3",
+    "@noble/secp256k1": "^2.0.0",
+    "bs58": "^5.0.0",
+    "lucide-react": "^0.294.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.19.8"
+  }
+}
