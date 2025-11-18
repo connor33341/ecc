@@ -12,6 +12,7 @@ export interface WebSocketSession {
   webSocket: WebSocket;
   address: string;
   sessionId: string;
+  expiresAt: number | null;
 }
 
 export class ChatRoom extends DurableObject {
@@ -49,6 +50,8 @@ export class ChatRoom extends DurableObject {
     const url = new URL(request.url);
     const sessionId = url.searchParams.get('sessionId');
     const address = url.searchParams.get('address');
+    const expiresAtStr = url.searchParams.get('expiresAt');
+    const expiresAt = expiresAtStr ? parseInt(expiresAtStr) : null;
 
     if (!sessionId || !address) {
       return new Response('Missing sessionId or address', { status: 400 });
@@ -66,7 +69,31 @@ export class ChatRoom extends DurableObject {
       webSocket: server,
       address: address.toLowerCase(),
       sessionId,
+      expiresAt,
     };
+
+    // If session has expiry, set up automatic disconnect
+    if (expiresAt) {
+      const timeUntilExpiry = expiresAt - Date.now();
+      if (timeUntilExpiry > 0) {
+        setTimeout(() => {
+          if (this.sessions.has(sessionId)) {
+            // Close the WebSocket
+            server.close(1000, 'Session expired');
+            // Remove from sessions
+            this.sessions.delete(sessionId);
+            // Broadcast expiry to all users
+            this.broadcast({
+              type: 'session_expired',
+              address: address.toLowerCase(),
+            });
+          }
+        }, timeUntilExpiry);
+      } else {
+        // Already expired
+        return new Response('Session already expired', { status: 401 });
+      }
+    }
 
     this.sessions.set(sessionId, session);
 
@@ -88,7 +115,10 @@ export class ChatRoom extends DurableObject {
     });
 
     // Send current online users to the new connection (including themselves)
-    const onlineUsers = Array.from(this.sessions.values()).map(s => s.address);
+    const onlineUsers = Array.from(this.sessions.values()).map(s => ({
+      address: s.address,
+      expiresAt: s.expiresAt,
+    }));
     server.send(JSON.stringify({
       type: 'online_users',
       users: onlineUsers,
@@ -98,6 +128,7 @@ export class ChatRoom extends DurableObject {
     this.broadcast({
       type: 'user_connected',
       address: address.toLowerCase(),
+      expiresAt,
     }, sessionId);
 
     return new Response(null, {

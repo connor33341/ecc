@@ -45,7 +45,7 @@ export function ChatInterface({
   const [messages, setMessages] = useState([]);
   const [messageInput, setMessageInput] = useState('');
   const [selectedRecipient, setSelectedRecipient] = useState('');
-  const [onlineUsers, setOnlineUsers] = useState([]);
+  const [onlineUsers, setOnlineUsers] = useState([]); // Array of {address, expiresAt}
   const messagesEndRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
   const shouldReconnectRef = useRef(true);
@@ -181,12 +181,15 @@ export function ChatInterface({
         break;
       case 'online_users':
         console.log('Setting online users to:', data.users, 'Count:', data.users.length);
+        // data.users is now array of {address, expiresAt}
         setOnlineUsers(data.users);
         break;
       case 'user_connected':
-        console.log('User connected:', data.address);
+        console.log('User connected:', data.address, 'expiresAt:', data.expiresAt);
         setOnlineUsers((prev) => {
-          const updated = [...new Set([...prev, data.address])];
+          // Remove if already exists, then add
+          const filtered = prev.filter(u => u.address !== data.address);
+          const updated = [...filtered, { address: data.address, expiresAt: data.expiresAt }];
           console.log('Previous count:', prev.length, 'New count:', updated.length);
           return updated;
         });
@@ -198,7 +201,7 @@ export function ChatInterface({
       case 'user_disconnected':
         console.log('User disconnected:', data.address);
         setOnlineUsers((prev) => {
-          const updated = prev.filter((u) => u !== data.address);
+          const updated = prev.filter((u) => u.address !== data.address);
           console.log('Previous count:', prev.length, 'New count:', updated.length);
           return updated;
         });
@@ -209,9 +212,10 @@ export function ChatInterface({
         break;
       case 'session_expired':
         // Handle session expiry notification
-        setOnlineUsers((prev) => prev.filter((u) => u !== data.address));
+        console.log('Session expired for:', data.address);
+        setOnlineUsers((prev) => prev.filter((u) => u.address !== data.address));
         setTimeout(() => {
-          addSystemMessage(`${formatAddress(data.address)} session expired`);
+          addSystemMessage(`${formatAddress(data.address)}'s session expired`);
         }, 0);
         break;
       case 'pong':
@@ -248,9 +252,9 @@ export function ChatInterface({
     if (activeProfile && activeProfile.address.toLowerCase() === addr.toLowerCase()) {
       return activeProfile.expiresAt != null;
     }
-    // For other users, we'll need to check if they have expiresAt from backend
-    // For now, we can't determine this without backend support
-    return false;
+    // Check if this address is in onlineUsers with expiresAt
+    const user = onlineUsers.find(u => u.address === addr.toLowerCase());
+    return user && user.expiresAt != null;
   };
 
   const sendMessage = async () => {
@@ -424,7 +428,7 @@ export function ChatInterface({
           >
             <option value="">Broadcast to all</option>
             {contactProfiles && contactProfiles.map((contact) => {
-              const isOnline = onlineUsers.some(u => u.toLowerCase() === contact.address.toLowerCase());
+              const isOnline = onlineUsers.some(u => u.address?.toLowerCase() === contact.address.toLowerCase());
               return (
                 <option key={contact.address} value={contact.address}>
                   {contact.name || formatAddress(contact.address)} {isOnline ? '🟢' : '⚫'}

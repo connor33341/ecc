@@ -221,9 +221,12 @@ async function handleWebSocketRequest(
   const id = env.CHAT_ROOM.idFromName('global-chat');
   const stub = env.CHAT_ROOM.get(id);
 
-  // Forward request to Durable Object with address
+  // Forward request to Durable Object with address and expiresAt
   const newUrl = new URL(request.url);
   newUrl.searchParams.set('address', session.address);
+  if (session.expiresAt) {
+    newUrl.searchParams.set('expiresAt', session.expiresAt.toString());
+  }
 
   const newRequest = new Request(newUrl.toString(), request);
 
