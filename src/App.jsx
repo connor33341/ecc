@@ -969,6 +969,10 @@ const App = () => {
                     value={newContactAddress}
                     onChange={(e) => setNewContactAddress(e.target.value.trim())}
                     className="w-full px-3 py-2 bg-white/10 border border-purple-500/30 rounded-lg text-white placeholder-purple-300/50 font-mono text-sm"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    autoComplete="off"
+                    spellCheck="false"
                   />
                   <div className="text-xs" style={{ color: currentTheme.primary + 'b0' }}>
                     💡 Formats: address:minutes or address:minutes:timestamp
