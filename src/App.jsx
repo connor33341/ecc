@@ -20,18 +20,30 @@ const App = () => {
   const [selectedRecipient, setSelectedRecipient] = useState('');
   const [copiedId, setCopiedId] = useState(null);
   const [activeTab, setActiveTab] = useState('encrypt');
-  const [theme, setTheme] = useState('purple');
+  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'purple');
   const [showSettings, setShowSettings] = useState(false);
   const [consoleLogs, setConsoleLogs] = useState([]);
-  const [copyFormat, setCopyFormat] = useState('full'); // 'full', 'lifetime', 'plain'
+  const [copyFormat, setCopyFormat] = useState(() => localStorage.getItem('copyFormat') || 'full');
   const [messageExpirationEnabled, setMessageExpirationEnabled] = useState(false);
   const [messageExpirationMinutes, setMessageExpirationMinutes] = useState(60);
   
   // Default settings
-  const [defaultKeyExpiryEnabled, setDefaultKeyExpiryEnabled] = useState(true);
-  const [defaultKeyExpiryMinutes, setDefaultKeyExpiryMinutes] = useState(5);
-  const [defaultMessageExpiryEnabled, setDefaultMessageExpiryEnabled] = useState(false);
-  const [defaultMessageExpiryMinutes, setDefaultMessageExpiryMinutes] = useState(30);
+  const [defaultKeyExpiryEnabled, setDefaultKeyExpiryEnabled] = useState(() => {
+    const saved = localStorage.getItem('defaultKeyExpiryEnabled');
+    return saved !== null ? saved === 'true' : true;
+  });
+  const [defaultKeyExpiryMinutes, setDefaultKeyExpiryMinutes] = useState(() => {
+    const saved = localStorage.getItem('defaultKeyExpiryMinutes');
+    return saved !== null ? parseInt(saved) : 5;
+  });
+  const [defaultMessageExpiryEnabled, setDefaultMessageExpiryEnabled] = useState(() => {
+    const saved = localStorage.getItem('defaultMessageExpiryEnabled');
+    return saved !== null ? saved === 'true' : false;
+  });
+  const [defaultMessageExpiryMinutes, setDefaultMessageExpiryMinutes] = useState(() => {
+    const saved = localStorage.getItem('defaultMessageExpiryMinutes');
+    return saved !== null ? parseInt(saved) : 30;
+  });
   
   // Warning dialog
   const [showWarningDialog, setShowWarningDialog] = useState(false);
@@ -500,13 +512,38 @@ const App = () => {
     };
   }, []);
 
+  // Auto-save settings to localStorage
+  useEffect(() => {
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem('copyFormat', copyFormat);
+  }, [copyFormat]);
+
+  useEffect(() => {
+    localStorage.setItem('defaultKeyExpiryEnabled', defaultKeyExpiryEnabled.toString());
+  }, [defaultKeyExpiryEnabled]);
+
+  useEffect(() => {
+    localStorage.setItem('defaultKeyExpiryMinutes', defaultKeyExpiryMinutes.toString());
+  }, [defaultKeyExpiryMinutes]);
+
+  useEffect(() => {
+    localStorage.setItem('defaultMessageExpiryEnabled', defaultMessageExpiryEnabled.toString());
+  }, [defaultMessageExpiryEnabled]);
+
+  useEffect(() => {
+    localStorage.setItem('defaultMessageExpiryMinutes', defaultMessageExpiryMinutes.toString());
+  }, [defaultMessageExpiryMinutes]);
+
   return (
     <div className={`min-h-screen bg-gradient-to-br ${currentTheme.gradient} p-4`}>
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-8 pt-8">
           <div className="flex items-center justify-center gap-3 mb-3 relative">
             <KeyRound className="w-10 h-10" style={{ color: currentTheme.primary }} />
-            <h1 className="text-4xl font-bold text-white">ECC secp256k1 Messenger</h1>
+            <h1 className="text-4xl font-bold text-white">ECC Messenger</h1>
             <button
               onClick={() => setShowSettings(true)}
               className="absolute right-0 p-2 rounded-lg transition-all hover:opacity-80"
@@ -619,14 +656,7 @@ const App = () => {
                   <div className="text-xs space-y-1">
                     <div className="flex items-center gap-2">
                       <span className="text-purple-300" style={{ color: currentTheme.primary }}>Address:</span>
-                      <input
-                        type="text"
-                        value={profile.address}
-                        readOnly
-                        onClick={(e) => e.target.select()}
-                        className="text-white font-mono text-xs bg-transparent border-none outline-none w-24 cursor-pointer"
-                        title="Click to select, then manually copy"
-                      />
+                      <span className="text-white font-mono text-xs overflow-hidden text-ellipsis whitespace-nowrap flex-1">{profile.address}</span>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
