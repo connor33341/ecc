@@ -4,10 +4,16 @@ import * as secp256k1 from '@noble/secp256k1';
 import { sha256 } from '@noble/hashes/sha256';
 import { hmac } from '@noble/hashes/hmac';
 import bs58 from 'bs58';
+import { WebChatPanel } from './WebChatPanel';
 
 // Set up the hash function for secp256k1
 secp256k1.utils.sha256Sync = (...messages) => {
   return sha256.create().update(secp256k1.utils.concatBytes(...messages)).digest();
+};
+
+// Set up HMAC for signing
+secp256k1.utils.hmacSha256Sync = (key, ...messages) => {
+  return hmac(sha256, key, secp256k1.utils.concatBytes(...messages));
 };
 
 const App = () => {
@@ -107,6 +113,30 @@ const App = () => {
       return publicKey;
     } catch (e) {
       throw new Error('Invalid address: ' + e.message);
+    }
+  };
+
+  // "Sign" a challenge by encrypting it with public key and decrypting with private key
+  const signChallenge = async (challenge, privateKeyHex, publicKeyHex) => {
+    try {
+      // Convert hex strings to Uint8Array
+      const privateKey = new Uint8Array(
+        privateKeyHex.match(/.{1,2}/g).map(byte => parseInt(byte, 16))
+      );
+      const publicKey = new Uint8Array(
+        publicKeyHex.match(/.{1,2}/g).map(byte => parseInt(byte, 16))
+      );
+      
+      // Encrypt the challenge with the public key
+      const encrypted = await encryptMessage(challenge, publicKey);
+      
+      // Decrypt it with the private key to prove ownership
+      const decrypted = await decryptMessage(encrypted, privateKey);
+      
+      // Return the decrypted message (should match challenge)
+      return decrypted;
+    } catch (e) {
+      throw new Error('Challenge signing failed: ' + e.message);
     }
   };
 
@@ -1278,6 +1308,27 @@ const App = () => {
           </div>
         )}
       </div>
+
+      {/* Web Chat Panel */}
+      <WebChatPanel 
+        activeProfile={activeProfile}
+        contactProfiles={contactProfiles}
+        signChallenge={signChallenge}
+        encryptMessage={async (msg, recipientPublicKey) => {
+          // Convert hex public key string to Uint8Array
+          const publicKey = new Uint8Array(
+            recipientPublicKey.match(/.{1,2}/g).map(byte => parseInt(byte, 16))
+          );
+          return await encryptMessage(msg, publicKey);
+        }}
+        decryptMessage={async (encryptedData, privateKeyHex) => {
+          // Convert hex private key string to Uint8Array
+          const privateKey = new Uint8Array(
+            privateKeyHex.match(/.{1,2}/g).map(byte => parseInt(byte, 16))
+          );
+          return await decryptMessage(encryptedData, privateKey);
+        }}
+      />
     </div>
   );
 };

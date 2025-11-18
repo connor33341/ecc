@@ -1,0 +1,20 @@
+{
+  "name": "ecc-worker",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker backend for encrypted messaging",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@noble/hashes": "^1.3.3",
+    "@noble/secp256k1": "^2.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20231218.0",
+    "typescript": "^5.3.3",
+    "wrangler": "^3.114.15"
+  }
+}

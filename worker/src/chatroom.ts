@@ -1,0 +1,217 @@
+import { DurableObject } from 'cloudflare:workers';
+
+export interface Message {
+  from: string;
+  to: string;
+  content: string; // encrypted content
+  timestamp: number;
+  signature: string;
+}
+
+export interface WebSocketSession {
+  webSocket: WebSocket;
+  address: string;
+  sessionId: string;
+}
+
+export class ChatRoom extends DurableObject {
+  private sessions: Map<string, WebSocketSession> = new Map();
+  private messageHistory: Message[] = [];
+  private readonly MAX_HISTORY = 100;
+
+  constructor(state: DurableObjectState, env: Env) {
+    super(state, env);
+  }
+
+  /**
+   * Handle HTTP requests to the Durable Object
+   */
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+
+    // Handle WebSocket upgrade
+    if (request.headers.get('Upgrade') === 'websocket') {
+      return this.handleWebSocket(request);
+    }
+
+    // Handle other HTTP requests
+    if (url.pathname === '/messages') {
+      return this.handleGetMessages(request);
+    }
+
+    return new Response('Not found', { status: 404 });
+  }
+
+  /**
+   * Handle WebSocket connections
+   */
+  private async handleWebSocket(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    const sessionId = url.searchParams.get('sessionId');
+    const address = url.searchParams.get('address');
+
+    if (!sessionId || !address) {
+      return new Response('Missing sessionId or address', { status: 400 });
+    }
+
+    // Create WebSocket pair
+    const pair = new WebSocketPair();
+    const [client, server] = Object.values(pair);
+
+    // Accept the WebSocket connection
+    server.accept();
+
+    // Store session
+    const session: WebSocketSession = {
+      webSocket: server,
+      address: address.toLowerCase(),
+      sessionId,
+    };
+
+    this.sessions.set(sessionId, session);
+
+    // Set up event handlers
+    server.addEventListener('message', (event) => {
+      this.handleMessage(sessionId, event.data);
+    });
+
+    server.addEventListener('close', () => {
+      this.sessions.delete(sessionId);
+      this.broadcast({
+        type: 'user_disconnected',
+        address: address.toLowerCase(),
+      }, sessionId);
+    });
+
+    server.addEventListener('error', () => {
+      this.sessions.delete(sessionId);
+    });
+
+    // Notify others of new connection
+    this.broadcast({
+      type: 'user_connected',
+      address: address.toLowerCase(),
+    }, sessionId);
+
+    // Send current online users to the new connection
+    const onlineUsers = Array.from(this.sessions.values()).map(s => s.address);
+    server.send(JSON.stringify({
+      type: 'online_users',
+      users: onlineUsers,
+    }));
+
+    return new Response(null, {
+      status: 101,
+      webSocket: client,
+    });
+  }
+
+  /**
+   * Handle incoming WebSocket messages
+   */
+  private handleMessage(sessionId: string, data: string | ArrayBuffer) {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+
+    try {
+      const message = JSON.parse(data.toString());
+
+      switch (message.type) {
+        case 'chat_message':
+          this.handleChatMessage(session, message);
+          break;
+        case 'ping':
+          session.webSocket.send(JSON.stringify({ type: 'pong' }));
+          break;
+        default:
+          console.warn('Unknown message type:', message.type);
+      }
+    } catch (error) {
+      console.error('Error handling message:', error);
+    }
+  }
+
+  /**
+   * Handle chat messages
+   */
+  private handleChatMessage(session: WebSocketSession, message: any) {
+    const chatMessage: Message = {
+      from: session.address,
+      to: message.to?.toLowerCase() || '',
+      content: message.content, // encrypted content
+      timestamp: Date.now(),
+      signature: message.signature || '',
+    };
+
+    // Store message in history
+    this.messageHistory.push(chatMessage);
+    if (this.messageHistory.length > this.MAX_HISTORY) {
+      this.messageHistory.shift();
+    }
+
+    // If message has a specific recipient, send only to them
+    if (chatMessage.to) {
+      const recipientSession = Array.from(this.sessions.values()).find(
+        s => s.address === chatMessage.to
+      );
+
+      if (recipientSession) {
+        recipientSession.webSocket.send(JSON.stringify({
+          type: 'chat_message',
+          message: chatMessage,
+        }));
+      }
+
+      // Also send confirmation back to sender
+      session.webSocket.send(JSON.stringify({
+        type: 'message_sent',
+        message: chatMessage,
+      }));
+    } else {
+      // Broadcast to all
+      this.broadcast({
+        type: 'chat_message',
+        message: chatMessage,
+      });
+    }
+  }
+
+  /**
+   * Broadcast a message to all connected clients except the sender
+   */
+  private broadcast(message: any, excludeSessionId?: string) {
+    const messageStr = JSON.stringify(message);
+
+    for (const [sessionId, session] of this.sessions.entries()) {
+      if (sessionId !== excludeSessionId) {
+        try {
+          session.webSocket.send(messageStr);
+        } catch (error) {
+          console.error('Error broadcasting to session:', sessionId, error);
+          this.sessions.delete(sessionId);
+        }
+      }
+    }
+  }
+
+  /**
+   * Get message history
+   */
+  private handleGetMessages(request: Request): Response {
+    const url = new URL(request.url);
+    const address = url.searchParams.get('address');
+
+    let messages = this.messageHistory;
+
+    // Filter messages for specific address if provided
+    if (address) {
+      messages = messages.filter(
+        m => m.from === address.toLowerCase() || m.to === address.toLowerCase()
+      );
+    }
+
+    return new Response(JSON.stringify({ messages }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+}
