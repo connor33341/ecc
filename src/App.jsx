@@ -20,6 +20,7 @@ const App = () => {
   const [selectedRecipient, setSelectedRecipient] = useState('');
   const [copiedId, setCopiedId] = useState(null);
   const [activeTab, setActiveTab] = useState('encrypt');
+  const [theme, setTheme] = useState('purple');
 
   // Generate a random private key and derive public key
   const generateKeyPair = () => {
@@ -37,6 +38,22 @@ const App = () => {
   // Derive public key from address
   const derivePublicKeyFromAddress = (address) => {
     try {
+      // Validate base58 characters first
+      const base58Chars = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+      const invalidChars = [];
+      for (let char of address) {
+        if (!base58Chars.includes(char)) {
+          invalidChars.push(char);
+        }
+      }
+      
+      if (invalidChars.length > 0) {
+        throw new Error(
+          `Invalid Base58 character(s): ${[...new Set(invalidChars)].map(c => `'${c}'`).join(', ')}. ` +
+          `Note: Base58 excludes 0, O, I, l to avoid confusion. This address may be from an older version - please create a new profile.`
+        );
+      }
+      
       const publicKey = bs58.decode(address);
       if (publicKey.length !== 33) {
         throw new Error('Invalid address length');
@@ -143,13 +160,24 @@ const App = () => {
 
   const addContact = (name, publicKeyInput, addressInput) => {
     try {
-      let publicKey, address;
+      let publicKey, address, expiresAt = null;
       
       if (addressInput && !publicKeyInput) {
+        // Check if address has time appended (format: address:minutes)
+        let actualAddress = addressInput.trim();
+        const timeParts = actualAddress.split(':');
+        if (timeParts.length === 2) {
+          actualAddress = timeParts[0].trim();
+          const minutes = parseInt(timeParts[1]);
+          if (!isNaN(minutes) && minutes > 0) {
+            expiresAt = Date.now() + minutes * 60000;
+          }
+        }
+        
         // Derive public key from address
-        const pubKeyBytes = derivePublicKeyFromAddress(addressInput);
+        const pubKeyBytes = derivePublicKeyFromAddress(actualAddress);
         publicKey = Array.from(pubKeyBytes).map(b => b.toString(16).padStart(2, '0')).join('');
-        address = addressInput;
+        address = actualAddress;
       } else if (publicKeyInput && !addressInput) {
         // Derive address from public key
         const pubKeyBytes = new Uint8Array(
@@ -172,6 +200,7 @@ const App = () => {
         name,
         publicKey,
         address,
+        expiresAt,
         createdAt: Date.now()
       };
       setContactProfiles(prev => [...prev, contact]);
@@ -211,6 +240,12 @@ const App = () => {
   const handleDecrypt = async () => {
     if (!encryptedMessage || !activeProfile) return;
     
+    // Check if profile has expired
+    if (activeProfile.expiresAt && activeProfile.expiresAt <= Date.now()) {
+      setDecryptedMessage('❌ Cannot decrypt: Profile has expired');
+      return;
+    }
+    
     try {
       const privateKey = new Uint8Array(
         activeProfile.privateKey.match(/.{1,2}/g).map(byte => parseInt(byte, 16))
@@ -240,6 +275,7 @@ const App = () => {
   useEffect(() => {
     const interval = setInterval(() => {
       setMyProfiles(prev => prev.filter(p => !p.expiresAt || p.expiresAt > Date.now()));
+      setContactProfiles(prev => prev.filter(c => !c.expiresAt || c.expiresAt > Date.now()));
     }, 1000);
     return () => clearInterval(interval);
   }, []);
@@ -255,15 +291,27 @@ const App = () => {
   const [contactInputMode, setContactInputMode] = useState('address'); // 'pubkey' or 'address'
   const [contactError, setContactError] = useState('');
 
+  const themes = {
+    purple: { name: 'Purple', primary: '#a855f7', secondary: '#9333ea', gradient: 'from-slate-900 via-purple-900 to-slate-900' },
+    blue: { name: 'Blue', primary: '#3b82f6', secondary: '#2563eb', gradient: 'from-slate-900 via-blue-900 to-slate-900' },
+    green: { name: 'Green', primary: '#10b981', secondary: '#059669', gradient: 'from-slate-900 via-emerald-900 to-slate-900' },
+    red: { name: 'Red', primary: '#f43f5e', secondary: '#e11d48', gradient: 'from-slate-900 via-rose-900 to-slate-900' },
+    orange: { name: 'Orange', primary: '#f97316', secondary: '#ea580c', gradient: 'from-slate-900 via-orange-900 to-slate-900' },
+    cyan: { name: 'Cyan', primary: '#06b6d4', secondary: '#0891b2', gradient: 'from-slate-900 via-cyan-900 to-slate-900' },
+    dark: { name: 'Dark', primary: '#6b7280', secondary: '#4b5563', gradient: 'from-black via-gray-900 to-black' }
+  };
+
+  const currentTheme = themes[theme];
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-4">
+    <div className={`min-h-screen bg-gradient-to-br ${currentTheme.gradient} p-4`}>
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-8 pt-8">
           <div className="flex items-center justify-center gap-3 mb-3">
-            <KeyRound className="w-10 h-10 text-purple-400" />
+            <KeyRound className="w-10 h-10" style={{ color: currentTheme.primary }} />
             <h1 className="text-4xl font-bold text-white">ECC secp256k1 Messenger</h1>
           </div>
-          <p className="text-purple-300">Secure end-to-end encrypted messaging with @noble/secp256k1</p>
+          <p className="text-purple-300" style={{ color: currentTheme.primary }}>Secure end-to-end encrypted messaging with @noble/secp256k1</p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -271,12 +319,13 @@ const App = () => {
           <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-purple-500/30">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
-                <User className="w-5 h-5 text-purple-400" />
+                <User className="w-5 h-5" style={{ color: currentTheme.primary }} />
                 <h2 className="text-xl font-semibold text-white">My Profiles</h2>
               </div>
               <button
                 onClick={() => setShowCreateForm(!showCreateForm)}
-                className="p-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors"
+                style={{ backgroundColor: currentTheme.primary }}
+                className="p-2 rounded-lg transition-colors hover:opacity-90"
               >
                 <Plus className="w-5 h-5 text-white" />
               </button>
@@ -298,7 +347,7 @@ const App = () => {
                     onChange={(e) => setExpirationEnabled(e.target.checked)}
                     className="w-4 h-4"
                   />
-                  <span className="text-purple-300 text-sm">Enable expiration</span>
+                  <span className="text-purple-300" style={{ color: currentTheme.primary }}>Enable expiration</span>
                 </div>
                 {expirationEnabled && (
                   <input
@@ -307,6 +356,7 @@ const App = () => {
                     value={expirationMinutes}
                     onChange={(e) => setExpirationMinutes(parseInt(e.target.value) || 30)}
                     className="w-full px-3 py-2 bg-white/10 border border-purple-500/30 rounded-lg text-white"
+                    style={{ borderColor: currentTheme.primary + '50' }}
                   />
                 )}
                 <button
@@ -317,7 +367,8 @@ const App = () => {
                       setShowCreateForm(false);
                     }
                   }}
-                  className="w-full px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-white transition-colors"
+                  style={{ backgroundColor: currentTheme.primary }}
+                  className="w-full px-4 py-2 rounded-lg text-white transition-colors hover:opacity-90"
                 >
                   Create Profile
                 </button>
@@ -331,9 +382,13 @@ const App = () => {
                   onClick={() => setActiveProfile(profile)}
                   className={`p-4 rounded-lg cursor-pointer transition-all ${
                     activeProfile?.id === profile.id
-                      ? 'bg-purple-600/40 border-2 border-purple-400'
+                      ? 'border-2'
                       : 'bg-white/5 border border-purple-500/20 hover:bg-white/10'
                   }`}
+                  style={{
+                    backgroundColor: activeProfile?.id === profile.id ? currentTheme.primary + '30' : undefined,
+                    borderColor: activeProfile?.id === profile.id ? currentTheme.primary : undefined
+                  }}
                 >
                   <div className="flex items-start justify-between mb-2">
                     <span className="font-semibold text-white">{profile.name}</span>
@@ -349,19 +404,25 @@ const App = () => {
                   </div>
                   <div className="text-xs space-y-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-purple-300">Address:</span>
+                      <span className="text-purple-300" style={{ color: currentTheme.primary }}>Address:</span>
                       <span className="text-white font-mono text-xs">{profile.address.slice(0, 10)}...</span>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          copyToClipboard(profile.address, profile.id + 'addr');
+                          const addressWithTime = profile.expiresAt 
+                            ? `${profile.address}:${Math.max(0, Math.ceil((profile.expiresAt - Date.now()) / 60000))}`
+                            : profile.address;
+                          copyToClipboard(addressWithTime, profile.id + 'addr');
                         }}
-                        className="p-1 hover:bg-purple-500/20 rounded"
+                        className="p-1 rounded"
+                        style={{ backgroundColor: 'transparent' }}
+                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = currentTheme.primary + '30'}
+                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                       >
                         {copiedId === profile.id + 'addr' ? (
                           <Check className="w-3 h-3 text-green-400" />
                         ) : (
-                          <Copy className="w-3 h-3 text-purple-400" />
+                          <Copy className="w-3 h-3" style={{ color: currentTheme.primary }} />
                         )}
                       </button>
                     </div>
@@ -380,25 +441,25 @@ const App = () => {
           {/* Main Area */}
           <div className="lg:col-span-2 space-y-6">
             {/* Tabs */}
-            <div className="bg-white/10 backdrop-blur-lg rounded-xl p-2 border border-purple-500/30 flex gap-2">
+            <div className="bg-white/10 backdrop-blur-lg rounded-xl p-2 border border-purple-500/30 flex gap-2" style={{ borderColor: currentTheme.primary + '50' }}>
               <button
                 onClick={() => setActiveTab('encrypt')}
-                className={`flex-1 px-4 py-3 rounded-lg transition-all flex items-center justify-center gap-2 ${
-                  activeTab === 'encrypt'
-                    ? 'bg-purple-600 text-white'
-                    : 'text-purple-300 hover:bg-white/5'
-                }`}
+                style={{
+                  backgroundColor: activeTab === 'encrypt' ? currentTheme.primary : 'transparent',
+                  color: activeTab === 'encrypt' ? 'white' : currentTheme.primary
+                }}
+                className="flex-1 px-4 py-3 rounded-lg transition-all flex items-center justify-center gap-2 hover:bg-white/5"
               >
                 <Lock className="w-5 h-5" />
                 Encrypt
               </button>
               <button
                 onClick={() => setActiveTab('decrypt')}
-                className={`flex-1 px-4 py-3 rounded-lg transition-all flex items-center justify-center gap-2 ${
-                  activeTab === 'decrypt'
-                    ? 'bg-purple-600 text-white'
-                    : 'text-purple-300 hover:bg-white/5'
-                }`}
+                style={{
+                  backgroundColor: activeTab === 'decrypt' ? currentTheme.primary : 'transparent',
+                  color: activeTab === 'decrypt' ? 'white' : currentTheme.primary
+                }}
+                className="flex-1 px-4 py-3 rounded-lg transition-all flex items-center justify-center gap-2 hover:bg-white/5"
               >
                 <Unlock className="w-5 h-5" />
                 Decrypt
@@ -427,7 +488,8 @@ const App = () => {
                 />
                 <button
                   onClick={handleEncrypt}
-                  className="w-full px-6 py-3 bg-purple-600 hover:bg-purple-700 rounded-lg text-white font-semibold transition-colors"
+                  style={{ backgroundColor: currentTheme.primary }}
+                  className="w-full px-6 py-3 rounded-lg text-white font-semibold transition-colors hover:opacity-90"
                 >
                   Encrypt Message
                 </button>
@@ -437,12 +499,15 @@ const App = () => {
                       <span className="text-purple-300 text-sm">Encrypted Message:</span>
                       <button
                         onClick={() => copyToClipboard(encryptedMessage, 'encrypted')}
-                        className="p-2 hover:bg-purple-500/20 rounded"
+                        className="p-2 rounded"
+                        style={{ backgroundColor: 'transparent' }}
+                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = currentTheme.primary + '30'}
+                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                       >
                         {copiedId === 'encrypted' ? (
                           <Check className="w-4 h-4 text-green-400" />
                         ) : (
-                          <Copy className="w-4 h-4 text-purple-400" />
+                          <Copy className="w-4 h-4" style={{ color: currentTheme.primary }} />
                         )}
                       </button>
                     </div>
@@ -459,9 +524,22 @@ const App = () => {
               <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-purple-500/30 space-y-4">
                 <h3 className="text-xl font-semibold text-white mb-4">Decrypt Message</h3>
                 {activeProfile ? (
-                  <div className="p-3 bg-purple-600/20 border border-purple-500/30 rounded-lg">
-                    <span className="text-purple-300 text-sm">Using profile: </span>
+                  <div 
+                    className="p-3 border rounded-lg"
+                    style={{
+                      backgroundColor: activeProfile.expiresAt && activeProfile.expiresAt <= Date.now() 
+                        ? '#dc262620' 
+                        : currentTheme.primary + '30',
+                      borderColor: activeProfile.expiresAt && activeProfile.expiresAt <= Date.now() 
+                        ? '#dc2626' 
+                        : currentTheme.primary
+                    }}
+                  >
+                    <span className="text-purple-300 text-sm" style={{ color: currentTheme.primary }}>Using profile: </span>
                     <span className="text-white font-semibold">{activeProfile.name}</span>
+                    {activeProfile.expiresAt && activeProfile.expiresAt <= Date.now() && (
+                      <span className="text-red-400 text-xs ml-2">⚠️ EXPIRED</span>
+                    )}
                   </div>
                 ) : (
                   <div className="p-3 bg-yellow-600/20 border border-yellow-500/30 rounded-lg text-yellow-300 text-sm">
@@ -477,13 +555,14 @@ const App = () => {
                 <button
                   onClick={handleDecrypt}
                   disabled={!activeProfile}
-                  className="w-full px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg text-white font-semibold transition-colors"
+                  style={{ backgroundColor: activeProfile ? currentTheme.primary : '#6b7280' }}
+                  className="w-full px-6 py-3 rounded-lg text-white font-semibold transition-colors hover:opacity-90 disabled:cursor-not-allowed"
                 >
                   Decrypt Message
                 </button>
                 {decryptedMessage && (
                   <div className="p-4 bg-black/30 rounded-lg">
-                    <span className="text-purple-300 text-sm block mb-2">Decrypted Message:</span>
+                    <span className="text-purple-300 text-sm block mb-2" style={{ color: currentTheme.primary }}>Decrypted Message:</span>
                     <p className="text-white">{decryptedMessage}</p>
                   </div>
                 )}
@@ -496,12 +575,13 @@ const App = () => {
         <div className="mt-6 bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-purple-500/30">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
-              <Users className="w-5 h-5 text-purple-400" />
+              <Users className="w-5 h-5" style={{ color: currentTheme.primary }} />
               <h2 className="text-xl font-semibold text-white">Contacts</h2>
             </div>
             <button
               onClick={() => setShowContactForm(!showContactForm)}
-              className="p-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors"
+              style={{ backgroundColor: currentTheme.primary }}
+              className="p-2 rounded-lg transition-colors hover:opacity-90"
             >
               <Plus className="w-5 h-5 text-white" />
             </button>
@@ -523,11 +603,11 @@ const App = () => {
                     setContactInputMode('pubkey');
                     setContactError('');
                   }}
-                  className={`flex-1 px-3 py-2 rounded-lg transition-colors ${
-                    contactInputMode === 'pubkey'
-                      ? 'bg-purple-600 text-white'
-                      : 'bg-white/5 text-purple-300 hover:bg-white/10'
-                  }`}
+                  style={{
+                    backgroundColor: contactInputMode === 'pubkey' ? currentTheme.primary : 'rgba(255,255,255,0.05)',
+                    color: contactInputMode === 'pubkey' ? 'white' : currentTheme.primary
+                  }}
+                  className="flex-1 px-3 py-2 rounded-lg transition-colors hover:opacity-90"
                 >
                   Public Key
                 </button>
@@ -536,11 +616,11 @@ const App = () => {
                     setContactInputMode('address');
                     setContactError('');
                   }}
-                  className={`flex-1 px-3 py-2 rounded-lg transition-colors ${
-                    contactInputMode === 'address'
-                      ? 'bg-purple-600 text-white'
-                      : 'bg-white/5 text-purple-300 hover:bg-white/10'
-                  }`}
+                  style={{
+                    backgroundColor: contactInputMode === 'address' ? currentTheme.primary : 'rgba(255,255,255,0.05)',
+                    color: contactInputMode === 'address' ? 'white' : currentTheme.primary
+                  }}
+                  className="flex-1 px-3 py-2 rounded-lg transition-colors hover:opacity-90"
                 >
                   Address
                 </button>
@@ -555,13 +635,18 @@ const App = () => {
                   className="w-full px-3 py-2 bg-white/10 border border-purple-500/30 rounded-lg text-white placeholder-purple-300/50 font-mono text-sm"
                 />
               ) : (
-                <input
-                  type="text"
-                  placeholder="Address (Base58 encoded)"
-                  value={newContactAddress}
-                  onChange={(e) => setNewContactAddress(e.target.value.trim())}
-                  className="w-full px-3 py-2 bg-white/10 border border-purple-500/30 rounded-lg text-white placeholder-purple-300/50 font-mono text-sm"
-                />
+                <>
+                  <input
+                    type="text"
+                    placeholder="Address (Base58 encoded) or address:minutes"
+                    value={newContactAddress}
+                    onChange={(e) => setNewContactAddress(e.target.value.trim())}
+                    className="w-full px-3 py-2 bg-white/10 border border-purple-500/30 rounded-lg text-white placeholder-purple-300/50 font-mono text-sm"
+                  />
+                  <div className="text-xs" style={{ color: currentTheme.primary + 'b0' }}>
+                    💡 Add :minutes to create auto-expiring contact (e.g., address:30)
+                  </div>
+                </>
               )}
               
               {contactError && (
@@ -606,7 +691,8 @@ const App = () => {
                     setContactError(result.error);
                   }
                 }}
-                className="w-full px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-white transition-colors"
+                style={{ backgroundColor: currentTheme.primary }}
+                className="w-full px-4 py-2 rounded-lg text-white transition-colors hover:opacity-90"
               >
                 Add Contact
               </button>
@@ -630,21 +716,52 @@ const App = () => {
                 </div>
                 <div className="text-xs space-y-1">
                   <div className="flex items-center gap-2">
-                    <span className="text-purple-300">Address:</span>
+                    <span className="text-purple-300" style={{ color: currentTheme.primary }}>Address:</span>
                     <span className="text-white font-mono text-xs break-all">{contact.address?.slice(0, 15)}...</span>
                     <button
                       onClick={() => copyToClipboard(contact.address, contact.id + 'addr')}
-                      className="p-1 hover:bg-purple-500/20 rounded flex-shrink-0"
+                      className="p-1 rounded flex-shrink-0"
+                      style={{ backgroundColor: 'transparent' }}
+                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = currentTheme.primary + '30'}
+                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                     >
                       {copiedId === contact.id + 'addr' ? (
                         <Check className="w-3 h-3 text-green-400" />
                       ) : (
-                        <Copy className="w-3 h-3 text-purple-400" />
+                        <Copy className="w-3 h-3" style={{ color: currentTheme.primary }} />
                       )}
                     </button>
                   </div>
+                  {contact.expiresAt && (
+                    <div className="flex items-center gap-2 text-yellow-400">
+                      <Clock className="w-3 h-3" />
+                      <span>{getRemainingTime(contact.expiresAt)}</span>
+                    </div>
+                  )}
                 </div>
               </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Theme Selector */}
+        <div className="mt-6 bg-white/10 backdrop-blur-lg rounded-xl p-4 border border-white/20">
+          <div className="flex items-center justify-center gap-3 flex-wrap">
+            <span className="text-white text-sm font-semibold">Theme:</span>
+            {Object.keys(themes).map(themeName => (
+              <button
+                key={themeName}
+                onClick={() => setTheme(themeName)}
+                style={{
+                  backgroundColor: theme === themeName ? themes[themeName].primary : 'rgba(255,255,255,0.05)',
+                  color: theme === themeName ? 'white' : 'rgba(255,255,255,0.7)'
+                }}
+                className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                  theme === themeName ? 'shadow-lg scale-105' : 'hover:bg-white/10'
+                }`}
+              >
+                {themes[themeName].name}
+              </button>
             ))}
           </div>
         </div>
