@@ -84,13 +84,14 @@ async function handleAPIRequest(
   // Verify proof endpoint
   if (url.pathname === '/api/auth/verify' && request.method === 'POST') {
     try {
-      const { sessionId, proof, address } = await request.json() as {
+      const { sessionId, proof, address, expiresAt } = await request.json() as {
         sessionId: string;
         proof: string;
         address: string;
+        expiresAt?: number | null;
       };
 
-      const result = await authManager.verifyProof(sessionId, proof, address);
+      const result = await authManager.verifyProof(sessionId, proof, address, expiresAt);
 
       if (result.success) {
         return new Response(

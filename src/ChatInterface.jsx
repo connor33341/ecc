@@ -33,7 +33,8 @@ export function ChatInterface({
   encryptMessage, 
   decryptMessage,
   contactProfiles,
-  activeProfile
+  activeProfile,
+  onSessionExpired
 }) {
   // Normalize address to lowercase to match backend
   const normalizedAddress = address?.toLowerCase();
@@ -48,6 +49,45 @@ export function ChatInterface({
   const messagesEndRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
   const shouldReconnectRef = useRef(true);
+  const sessionCheckIntervalRef = useRef(null);
+
+  // Check if session is still valid every 30 seconds
+  useEffect(() => {
+    if (!sessionId) return;
+
+    const checkSession = async () => {
+      try {
+        console.log('Checking session validity...');
+        const response = await fetch(`https://probable-space-eureka-g4q4pq5r4p5h99rp-8787.app.github.dev/api/auth/session?sessionId=${sessionId}`);
+        const data = await response.json();
+        
+        console.log('Session check response:', data);
+        
+        if (!data.valid) {
+          console.log('Session expired, disconnecting');
+          shouldReconnectRef.current = false;
+          if (wsRef.current) wsRef.current.close();
+          if (onSessionExpired) {
+            onSessionExpired();
+          }
+        }
+      } catch (err) {
+        console.error('Session check error:', err);
+      }
+    };
+
+    // Check immediately
+    checkSession();
+    
+    // Then check every 30 seconds
+    sessionCheckIntervalRef.current = setInterval(checkSession, 30000);
+
+    return () => {
+      if (sessionCheckIntervalRef.current) {
+        clearInterval(sessionCheckIntervalRef.current);
+      }
+    };
+  }, [sessionId]);
 
   useEffect(() => {
     if (!sessionId || !address) return;
@@ -150,6 +190,10 @@ export function ChatInterface({
           console.log('Previous count:', prev.length, 'New count:', updated.length);
           return updated;
         });
+        // Schedule system message to avoid setState during render
+        setTimeout(() => {
+          addSystemMessage(`${formatAddress(data.address)} joined the chat`);
+        }, 0);
         break;
       case 'user_disconnected':
         console.log('User disconnected:', data.address);
@@ -158,6 +202,17 @@ export function ChatInterface({
           console.log('Previous count:', prev.length, 'New count:', updated.length);
           return updated;
         });
+        // Schedule system message to avoid setState during render
+        setTimeout(() => {
+          addSystemMessage(`${formatAddress(data.address)} left the chat`);
+        }, 0);
+        break;
+      case 'session_expired':
+        // Handle session expiry notification
+        setOnlineUsers((prev) => prev.filter((u) => u !== data.address));
+        setTimeout(() => {
+          addSystemMessage(`${formatAddress(data.address)} session expired`);
+        }, 0);
         break;
       case 'pong':
         // Handle ping/pong
@@ -175,6 +230,27 @@ export function ChatInterface({
       isMyMessage: message.from.toLowerCase() === normalizedAddress 
     });
     setMessages((prev) => [...prev, message]);
+  };
+
+  const addSystemMessage = (text) => {
+    const systemMessage = {
+      type: 'system',
+      content: text,
+      timestamp: Date.now(),
+      from: 'system',
+      to: '',
+    };
+    setMessages((prev) => [...prev, systemMessage]);
+  };
+
+  const isTemporaryAddress = (addr) => {
+    // Check if this address belongs to a profile with expiresAt set
+    if (activeProfile && activeProfile.address.toLowerCase() === addr.toLowerCase()) {
+      return activeProfile.expiresAt != null;
+    }
+    // For other users, we'll need to check if they have expiresAt from backend
+    // For now, we can't determine this without backend support
+    return false;
   };
 
   const sendMessage = async () => {
@@ -287,8 +363,21 @@ export function ChatInterface({
           </div>
         ) : (
           messages.map((msg, idx) => {
+            // Handle system messages
+            if (msg.type === 'system') {
+              return (
+                <div key={idx} className="flex justify-center">
+                  <div className="text-xs text-gray-500 italic px-3 py-1 bg-gray-800/50 rounded-full">
+                    {msg.content}
+                  </div>
+                </div>
+              );
+            }
+
+            // Handle regular messages
             const isMyMsg = isMyMessage(msg);
             const isDirect = msg.to && msg.to !== '';
+            const isTempAddress = isTemporaryAddress(msg.from);
             
             return (
               <div
@@ -304,6 +393,9 @@ export function ChatInterface({
                 >
                   <div className="text-xs opacity-70 mb-1">
                     {isMyMsg ? 'You' : formatAddress(msg.from)}
+                    {isTempAddress && !isMyMsg && (
+                      <span className="ml-1" title="Temporary Address">⏱️</span>
+                    )}
                     {isDirect && (
                       <span> → {formatAddress(msg.to)}</span>
                     )}

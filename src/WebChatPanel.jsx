@@ -83,6 +83,7 @@ export function WebChatPanel({
                 decryptMessage={decryptMessage}
                 contactProfiles={contactProfiles}
                 activeProfile={activeProfile}
+                onSessionExpired={handleLogout}
               />
             </div>
           </div>

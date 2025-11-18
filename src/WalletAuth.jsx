@@ -38,7 +38,8 @@ export function WalletAuth({ onAuthSuccess, onLogout, activeProfile, signChallen
         body: JSON.stringify({ 
           sessionId, 
           proof,
-          address: activeProfile.address
+          address: activeProfile.address,
+          expiresAt: activeProfile.expiresAt || null
         }),
       });
 

@@ -10,6 +10,7 @@ export interface AuthSession {
   address: string;
   authenticated: boolean;
   timestamp: number;
+  expiresAt: number | null; // User-set expiration for temporary profiles
 }
 
 export class AuthManager {
@@ -42,7 +43,8 @@ export class AuthManager {
   async verifyProof(
     sessionId: string,
     proof: string,
-    address: string
+    address: string,
+    expiresAt?: number | null
   ): Promise<{ success: boolean; address?: string; error?: string }> {
     const challengeData = this.challenges.get(sessionId);
 
@@ -69,6 +71,7 @@ export class AuthManager {
         address: address.toLowerCase(), // Normalize to lowercase
         authenticated: true,
         timestamp: Date.now(),
+        expiresAt: expiresAt || null,
       });
 
       // Clean up challenge
@@ -91,8 +94,14 @@ export class AuthManager {
       return null;
     }
 
-    // Check if session expired
+    // Check if session expired (system expiry)
     if (Date.now() - session.timestamp > this.SESSION_EXPIRY) {
+      this.sessions.delete(sessionId);
+      return null;
+    }
+
+    // Check if user-set expiration has passed
+    if (session.expiresAt && Date.now() > session.expiresAt) {
       this.sessions.delete(sessionId);
       return null;
     }
@@ -105,6 +114,26 @@ export class AuthManager {
    */
   removeSession(sessionId: string): void {
     this.sessions.delete(sessionId);
+  }
+
+  /**
+   * Get all expired sessions and remove them
+   */
+  getExpiredSessions(): string[] {
+    const now = Date.now();
+    const expired: string[] = [];
+
+    for (const [sessionId, session] of this.sessions.entries()) {
+      const systemExpired = now - session.timestamp > this.SESSION_EXPIRY;
+      const userExpired = session.expiresAt && now > session.expiresAt;
+      
+      if (systemExpired || userExpired) {
+        expired.push(session.address);
+        this.sessions.delete(sessionId);
+      }
+    }
+
+    return expired;
   }
 
   /**
