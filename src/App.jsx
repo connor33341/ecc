@@ -23,6 +23,7 @@ const App = () => {
   const [theme, setTheme] = useState('purple');
   const [showSettings, setShowSettings] = useState(false);
   const [consoleLogs, setConsoleLogs] = useState([]);
+  const [copyFormat, setCopyFormat] = useState('full'); // 'full', 'lifetime', 'plain'
 
   // Generate a random private key and derive public key
   const generateKeyPair = () => {
@@ -179,16 +180,38 @@ const App = () => {
       let publicKey, address, expiresAt = null;
       
       if (addressInput && !publicKeyInput) {
-        // Check if address has time appended (format: address:minutes)
+        // Check if address has time appended
+        // Format 1: address:lifetime:timestamp (3 parts)
+        // Format 2: address:lifetime (2 parts)
+        // Format 3: address (1 part)
         let actualAddress = addressInput.trim();
         const timeParts = actualAddress.split(':');
-        if (timeParts.length === 2) {
+        
+        if (timeParts.length === 3) {
+          // Full format: address:lifetime:timestamp
+          actualAddress = timeParts[0].trim();
+          const lifetime = parseInt(timeParts[1]);
+          const timestamp = parseInt(timeParts[2]);
+          
+          if (!isNaN(lifetime) && !isNaN(timestamp) && lifetime > 0) {
+            // Calculate expiration from creation time + lifetime
+            expiresAt = timestamp + (lifetime * 60000);
+            
+            // Check if already expired
+            if (expiresAt <= Date.now()) {
+              console.warn('Warning: Contact was created at', new Date(timestamp).toISOString(), 'and has already expired');
+              // Still allow adding but it will be auto-removed
+            }
+          }
+        } else if (timeParts.length === 2) {
+          // Legacy format: address:lifetime
           actualAddress = timeParts[0].trim();
           const minutes = parseInt(timeParts[1]);
           if (!isNaN(minutes) && minutes > 0) {
             expiresAt = Date.now() + minutes * 60000;
           }
         }
+        // else: plain address, no expiration
         
         // Derive public key from address
         const pubKeyBytes = derivePublicKeyFromAddress(actualAddress);
@@ -533,10 +556,23 @@ const App = () => {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          const addressWithTime = profile.expiresAt 
-                            ? `${profile.address}:${Math.max(0, Math.ceil((profile.expiresAt - Date.now()) / 60000))}`
-                            : profile.address;
-                          copyToClipboard(addressWithTime, profile.id + 'addr');
+                          let addressToCopy;
+                          const remainingMinutes = profile.expiresAt 
+                            ? Math.max(0, Math.ceil((profile.expiresAt - Date.now()) / 60000))
+                            : null;
+                          
+                          if (copyFormat === 'full' && profile.createdAt && remainingMinutes !== null) {
+                            // Full format: address:lifetime:timestamp
+                            addressToCopy = `${profile.address}:${remainingMinutes}:${profile.createdAt}`;
+                          } else if (copyFormat === 'lifetime' && remainingMinutes !== null) {
+                            // Legacy format: address:lifetime
+                            addressToCopy = `${profile.address}:${remainingMinutes}`;
+                          } else {
+                            // Plain address
+                            addressToCopy = profile.address;
+                          }
+                          
+                          copyToClipboard(addressToCopy, profile.id + 'addr');
                         }}
                         className="p-1 rounded"
                         style={{ backgroundColor: 'transparent' }}
@@ -768,7 +804,7 @@ const App = () => {
                     className="w-full px-3 py-2 bg-white/10 border border-purple-500/30 rounded-lg text-white placeholder-purple-300/50 font-mono text-sm"
                   />
                   <div className="text-xs" style={{ color: currentTheme.primary + 'b0' }}>
-                    💡 Add :minutes to create auto-expiring contact (e.g., address:30)
+                    💡 Formats: address:minutes or address:minutes:timestamp
                   </div>
                 </>
               )}
@@ -778,6 +814,23 @@ const App = () => {
                   {contactError}
                 </div>
               )}
+              
+              {newContactAddress && newContactAddress.split(':').length === 3 && (() => {
+                const parts = newContactAddress.split(':');
+                const lifetime = parseInt(parts[1]);
+                const timestamp = parseInt(parts[2]);
+                if (!isNaN(lifetime) && !isNaN(timestamp)) {
+                  const expiresAt = timestamp + (lifetime * 60000);
+                  if (expiresAt <= Date.now()) {
+                    return (
+                      <div className="p-2 bg-yellow-500/20 border border-yellow-500/30 rounded text-yellow-300 text-sm">
+                        ⚠️ Warning: This contact has already expired (created {new Date(timestamp).toLocaleString()})
+                      </div>
+                    );
+                  }
+                }
+                return null;
+              })()}
               
               <button
                 onClick={() => {
@@ -905,6 +958,60 @@ const App = () => {
                         {themes[themeName].name}
                       </button>
                     ))}
+                  </div>
+                </div>
+
+                {/* Copy Format Setting */}
+                <div className="p-6 border-b border-white/10">
+                  <h3 className="text-lg font-semibold text-white mb-4">Address Copy Format</h3>
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-3 p-3 bg-white/5 rounded-lg cursor-pointer hover:bg-white/10 transition-colors">
+                      <input
+                        type="radio"
+                        name="copyFormat"
+                        value="full"
+                        checked={copyFormat === 'full'}
+                        onChange={(e) => setCopyFormat(e.target.value)}
+                        className="w-4 h-4"
+                        style={{ accentColor: currentTheme.primary }}
+                      />
+                      <div>
+                        <div className="text-white font-medium">Full (address:lifetime:timestamp)</div>
+                        <div className="text-sm text-gray-400">Includes creation time for accurate expiration</div>
+                      </div>
+                    </label>
+                    
+                    <label className="flex items-center gap-3 p-3 bg-white/5 rounded-lg cursor-pointer hover:bg-white/10 transition-colors">
+                      <input
+                        type="radio"
+                        name="copyFormat"
+                        value="lifetime"
+                        checked={copyFormat === 'lifetime'}
+                        onChange={(e) => setCopyFormat(e.target.value)}
+                        className="w-4 h-4"
+                        style={{ accentColor: currentTheme.primary }}
+                      />
+                      <div>
+                        <div className="text-white font-medium">Lifetime (address:minutes)</div>
+                        <div className="text-sm text-gray-400">Simple format with remaining time</div>
+                      </div>
+                    </label>
+                    
+                    <label className="flex items-center gap-3 p-3 bg-white/5 rounded-lg cursor-pointer hover:bg-white/10 transition-colors">
+                      <input
+                        type="radio"
+                        name="copyFormat"
+                        value="plain"
+                        checked={copyFormat === 'plain'}
+                        onChange={(e) => setCopyFormat(e.target.value)}
+                        className="w-4 h-4"
+                        style={{ accentColor: currentTheme.primary }}
+                      />
+                      <div>
+                        <div className="text-white font-medium">Plain (address only)</div>
+                        <div className="text-sm text-gray-400">Just the address without expiration info</div>
+                      </div>
+                    </label>
                   </div>
                 </div>
 
