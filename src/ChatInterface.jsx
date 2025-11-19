@@ -128,10 +128,11 @@ export function ChatInterface({
     }
 
     const wsUrl = WORKER_URL.replace(/^http/, 'ws') + `/ws?sessionId=${sessionId}`;
+    console.log('Connecting to WebSocket:', wsUrl);
     const websocket = new WebSocket(wsUrl);
 
     websocket.onopen = () => {
-      console.log('WebSocket connected');
+      console.log('WebSocket connected successfully');
       setIsConnected(true);
     };
 
@@ -140,8 +141,8 @@ export function ChatInterface({
       handleWebSocketMessage(data);
     };
 
-    websocket.onclose = () => {
-      console.log('WebSocket disconnected');
+    websocket.onclose = (event) => {
+      console.log('WebSocket disconnected - Code:', event.code, 'Reason:', event.reason, 'Clean:', event.wasClean);
       setIsConnected(false);
 
       // Only reconnect if we should (not disconnected intentionally)
@@ -159,7 +160,13 @@ export function ChatInterface({
     };
 
     websocket.onerror = (error) => {
-      console.error('WebSocket error:', error);
+      console.error('WebSocket error details:', {
+        type: error.type,
+        target: error.target,
+        readyState: websocket.readyState,
+        url: wsUrl,
+        message: error.message
+      });
       // Don't reconnect on authentication errors
       if (error.message && error.message.includes('Authentication')) {
         shouldReconnectRef.current = false;

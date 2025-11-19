@@ -228,7 +228,11 @@ async function handleWebSocketRequest(
     newUrl.searchParams.set('expiresAt', session.expiresAt.toString());
   }
 
-  const newRequest = new Request(newUrl.toString(), request);
+  // Create new request preserving all headers and the upgrade request
+  const newRequest = new Request(newUrl.toString(), {
+    method: request.method,
+    headers: request.headers,
+  });
 
   return stub.fetch(newRequest);
 }
