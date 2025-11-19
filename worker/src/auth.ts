@@ -134,20 +134,9 @@ export class AuthManager {
    * Get all expired sessions and remove them
    */
   getExpiredSessions(): string[] {
-    const now = Date.now();
-    const expired: string[] = [];
-
-    for (const [sessionId, session] of this.sessions.entries()) {
-      const systemExpired = now - session.timestamp > this.SESSION_EXPIRY;
-      const userExpired = session.expiresAt && now > session.expiresAt;
-      
-      if (systemExpired || userExpired) {
-        expired.push(session.address);
-        this.sessions.delete(sessionId);
-      }
-    }
-
-    return expired;
+    // With KV, expiration is handled automatically via TTL
+    // This method is kept for compatibility but doesn't need to do anything
+    return [];
   }
 
   /**
@@ -163,11 +152,6 @@ export class AuthManager {
       }
     }
 
-    // Clean expired sessions
-    for (const [id, session] of this.sessions.entries()) {
-      if (now - session.timestamp > this.SESSION_EXPIRY) {
-        this.sessions.delete(id);
-      }
-    }
+    // Sessions in KV are cleaned up automatically via TTL
   }
 }

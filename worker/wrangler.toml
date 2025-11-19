@@ -9,7 +9,8 @@ enabled = true
 
 [[kv_namespaces]]
 binding = "SESSIONS"
-id = "placeholder"
+id = "39a126a8cb7340b4bbc11108cc4867dd"
+preview_id = "39a126a8cb7340b4bbc11108cc4867dd"
 
 [durable_objects]
 bindings = [
