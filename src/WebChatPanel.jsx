@@ -75,7 +75,7 @@ export function WebChatPanel({
                 authData={authData}
               />
             </div>
-            <div className="flex-1 overflow-hidden">
+            <div className="flex-1 min-h-0 overflow-hidden">
               <ChatInterface
                 address={authData.address}
                 sessionId={authData.sessionId}

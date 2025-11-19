@@ -348,26 +348,26 @@ export function ChatInterface({
   };
 
   return (
-    <div className="flex flex-col h-full bg-gray-900 rounded-lg overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between p-4 bg-gray-800 border-b border-gray-700">
+    <div className="flex flex-col h-full bg-gray-900">
+      {/* Status Bar */}
+      <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700 flex-shrink-0">
         <div className="flex items-center gap-2">
           <Circle
-            className={`w-3 h-3 ${isConnected ? 'text-green-500 fill-green-500' : 'text-red-500 fill-red-500'}`}
+            className={`w-2 h-2 ${isConnected ? 'text-green-500 fill-green-500' : 'text-red-500 fill-red-500'}`}
           />
-          <span className="text-sm text-gray-300">
+          <span className="text-xs text-gray-300">
             {isConnected ? 'Connected' : 'Disconnected'}
           </span>
         </div>
 
         <div className="flex items-center gap-2">
-          <Users className="w-5 h-5 text-gray-400" />
-          <span className="text-sm text-gray-300">{onlineUsers.length} online</span>
+          <Users className="w-4 h-4 text-gray-400" />
+          <span className="text-xs text-gray-300">{onlineUsers.length} online</span>
         </div>
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
         {messages.length === 0 ? (
           <div className="flex items-center justify-center h-full text-gray-500">
             No messages yet. Start chatting!
@@ -425,7 +425,7 @@ export function ChatInterface({
       </div>
 
       {/* Input */}
-      <div className="p-4 bg-gray-800 border-t border-gray-700">
+      <div className="p-4 bg-gray-800 border-t border-gray-700 flex-shrink-0">
         {/* Recipient selector */}
         <div className="mb-2">
           <select
