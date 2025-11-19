@@ -48,21 +48,27 @@ export class ChatRoom extends DurableObject {
    * Handle WebSocket connections
    */
   private async handleWebSocket(request: Request): Promise<Response> {
+    console.log('[DO] Handling WebSocket in Durable Object');
     const url = new URL(request.url);
     const sessionId = url.searchParams.get('sessionId');
     const address = url.searchParams.get('address');
     const expiresAtStr = url.searchParams.get('expiresAt');
     const expiresAt = expiresAtStr ? parseInt(expiresAtStr) : null;
 
+    console.log('[DO] SessionId:', sessionId, 'Address:', address, 'ExpiresAt:', expiresAt);
+
     if (!sessionId || !address) {
+      console.log('[DO] Missing sessionId or address');
       return new Response('Missing sessionId or address', { status: 400 });
     }
 
     // Create WebSocket pair
+    console.log('[DO] Creating WebSocket pair');
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
 
     // Accept the WebSocket connection
+    console.log('[DO] Accepting WebSocket connection');
     server.accept();
 
     // Store session
@@ -132,6 +138,7 @@ export class ChatRoom extends DurableObject {
       expiresAt,
     }, sessionId);
 
+    console.log('[DO] Returning WebSocket upgrade response');
     return new Response(null, {
       status: 101,
       webSocket: client,

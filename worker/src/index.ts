@@ -198,26 +198,33 @@ async function handleWebSocketRequest(
   env: Env,
   url: URL
 ): Promise<Response> {
+  console.log('[WS] WebSocket upgrade request received');
   const sessionId = url.searchParams.get('sessionId');
 
   if (!sessionId) {
+    console.log('[WS] Missing sessionId');
     return new Response('Missing sessionId', { 
       status: 400,
       headers: corsHeaders 
     });
   }
 
+  console.log('[WS] Verifying session:', sessionId);
   // Verify session
   const session = authManager.getSession(sessionId);
 
   if (!session) {
+    console.log('[WS] Invalid or expired session');
     return new Response('Invalid or expired session', { 
       status: 401,
       headers: corsHeaders 
     });
   }
 
+  console.log('[WS] Session valid for address:', session.address);
+
   // Get Durable Object instance
+  console.log('[WS] Getting Durable Object instance');
   const id = env.CHAT_ROOM.idFromName('global-chat');
   const stub = env.CHAT_ROOM.get(id);
 
@@ -229,9 +236,13 @@ async function handleWebSocketRequest(
     newUrl.searchParams.set('expiresAt', session.expiresAt.toString());
   }
 
+  console.log('[WS] Forwarding to Durable Object, URL:', newUrl.toString());
   // For WebSocket upgrades, we need to pass the original request
   // but with the modified URL
   const newRequest = new Request(newUrl.toString(), request);
 
-  return stub.fetch(newRequest);
+  console.log('[WS] Request upgrade header:', request.headers.get('Upgrade'));
+  const response = await stub.fetch(newRequest);
+  console.log('[WS] Durable Object response status:', response.status);
+  return response;
 }
