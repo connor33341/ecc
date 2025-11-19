@@ -58,7 +58,7 @@ export function ChatInterface({
     const checkSession = async () => {
       try {
         console.log('Checking session validity...');
-        const response = await fetch(`https://probable-space-eureka-g4q4pq5r4p5h99rp-8787.app.github.dev/api/auth/session?sessionId=${sessionId}`);
+        const response = await fetch(`${WORKER_URL}/api/auth/session?sessionId=${sessionId}`);
         const data = await response.json();
         
         console.log('Session check response:', data);
@@ -127,7 +127,7 @@ export function ChatInterface({
       wsRef.current = null;
     }
 
-    const wsUrl = WORKER_URL.replace('http', 'ws') + `/ws?sessionId=${sessionId}`;
+    const wsUrl = WORKER_URL.replace(/^http/, 'ws') + `/ws?sessionId=${sessionId}`;
     const websocket = new WebSocket(wsUrl);
 
     websocket.onopen = () => {
