@@ -15,9 +15,13 @@ export interface AuthSession {
 
 export class AuthManager {
   private challenges: Map<string, AuthChallenge> = new Map();
-  private sessions: Map<string, AuthSession> = new Map();
+  private kv: KVNamespace | null = null;
   private readonly CHALLENGE_EXPIRY = 5 * 60 * 1000; // 5 minutes
   private readonly SESSION_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours
+
+  setKV(kv: KVNamespace): void {
+    this.kv = kv;
+  }
 
   /**
    * Generate a challenge for authentication
@@ -67,12 +71,20 @@ export class AuthManager {
       }
 
       // Create session
-      this.sessions.set(sessionId, {
+      const session: AuthSession = {
         address: address.toLowerCase(), // Normalize to lowercase
         authenticated: true,
         timestamp: Date.now(),
         expiresAt: expiresAt || null,
-      });
+      };
+
+      // Store in KV if available, with TTL
+      if (this.kv) {
+        const ttl = Math.floor(this.SESSION_EXPIRY / 1000); // Convert to seconds
+        await this.kv.put(`session:${sessionId}`, JSON.stringify(session), {
+          expirationTtl: ttl,
+        });
+      }
 
       // Clean up challenge
       this.challenges.delete(sessionId);
@@ -87,33 +99,35 @@ export class AuthManager {
   /**
    * Get session for a sessionId
    */
-  getSession(sessionId: string): AuthSession | null {
-    const session = this.sessions.get(sessionId);
+  async getSession(sessionId: string): Promise<AuthSession | null> {
+    // Try to get from KV if available
+    if (this.kv) {
+      const sessionData = await this.kv.get(`session:${sessionId}`);
+      if (!sessionData) {
+        return null;
+      }
 
-    if (!session) {
-      return null;
+      const session: AuthSession = JSON.parse(sessionData);
+
+      // Check if user-set expiration has passed
+      if (session.expiresAt && Date.now() > session.expiresAt) {
+        await this.kv.delete(`session:${sessionId}`);
+        return null;
+      }
+
+      return session;
     }
 
-    // Check if session expired (system expiry)
-    if (Date.now() - session.timestamp > this.SESSION_EXPIRY) {
-      this.sessions.delete(sessionId);
-      return null;
-    }
-
-    // Check if user-set expiration has passed
-    if (session.expiresAt && Date.now() > session.expiresAt) {
-      this.sessions.delete(sessionId);
-      return null;
-    }
-
-    return session;
+    return null;
   }
 
   /**
    * Remove a session
    */
-  removeSession(sessionId: string): void {
-    this.sessions.delete(sessionId);
+  async removeSession(sessionId: string): Promise<void> {
+    if (this.kv) {
+      await this.kv.delete(`session:${sessionId}`);
+    }
   }
 
   /**

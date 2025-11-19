@@ -1,9 +1,6 @@
 import { ChatRoom } from './chatroom';
 import { AuthManager } from './auth';
-
-export interface Env {
-  CHAT_ROOM: DurableObjectNamespace<ChatRoom>;
-}
+import type { Env } from './types';
 
 export { ChatRoom };
 
@@ -30,6 +27,9 @@ function handleOptions(request: Request): Response {
  */
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    // Initialize AuthManager with KV
+    authManager.setKV(env.SESSIONS);
+    
     const url = new URL(request.url);
 
     // Handle CORS preflight
@@ -138,7 +138,7 @@ async function handleAPIRequest(
       );
     }
 
-    const session = authManager.getSession(sessionId);
+    const session = await authManager.getSession(sessionId);
 
     if (session) {
       return new Response(
@@ -165,7 +165,7 @@ async function handleAPIRequest(
   if (url.pathname === '/api/auth/logout' && request.method === 'POST') {
     try {
       const { sessionId } = await request.json() as { sessionId: string };
-      authManager.removeSession(sessionId);
+      await authManager.removeSession(sessionId);
 
       return new Response(
         JSON.stringify({ success: true }),
@@ -211,7 +211,7 @@ async function handleWebSocketRequest(
 
   console.log('[WS] Verifying session:', sessionId);
   // Verify session
-  const session = authManager.getSession(sessionId);
+  const session = await authManager.getSession(sessionId);
 
   if (!session) {
     console.log('[WS] Invalid or expired session');
