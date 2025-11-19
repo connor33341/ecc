@@ -222,17 +222,16 @@ async function handleWebSocketRequest(
   const stub = env.CHAT_ROOM.get(id);
 
   // Forward request to Durable Object with address and expiresAt
+  // Modify URL to include session address and expiry
   const newUrl = new URL(request.url);
   newUrl.searchParams.set('address', session.address);
   if (session.expiresAt) {
     newUrl.searchParams.set('expiresAt', session.expiresAt.toString());
   }
 
-  // Create new request preserving all headers and the upgrade request
-  const newRequest = new Request(newUrl.toString(), {
-    method: request.method,
-    headers: request.headers,
-  });
+  // For WebSocket upgrades, we need to pass the original request
+  // but with the modified URL
+  const newRequest = new Request(newUrl.toString(), request);
 
   return stub.fetch(newRequest);
 }
