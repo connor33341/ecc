@@ -967,15 +967,23 @@ const App = () => {
                     type="text"
                     placeholder="Address (Base58 encoded) or address:minutes"
                     value={newContactAddress}
-                    onChange={(e) => setNewContactAddress(e.target.value.trim())}
+                    onChange={(e) => setNewContactAddress(e.target.value)}
+                    onPaste={(e) => {
+                      e.preventDefault();
+                      const pastedText = e.clipboardData.getData('text');
+                      setNewContactAddress(pastedText);
+                    }}
                     className="w-full px-3 py-2 bg-white/10 border border-purple-500/30 rounded-lg text-white placeholder-purple-300/50 font-mono text-sm"
-                    autoCapitalize="none"
+                    autoCapitalize="characters"
                     autoCorrect="off"
                     autoComplete="off"
                     spellCheck="false"
+                    data-gramm="false"
+                    data-gramm_editor="false"
+                    data-enable-grammarly="false"
                   />
                   <div className="text-xs" style={{ color: currentTheme.primary + 'b0' }}>
-                    💡 Formats: address:minutes or address:minutes:timestamp
+                    💡 Formats: address:minutes or address:minutes:timestamp or just the address
                   </div>
                 </>
               )}
