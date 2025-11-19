@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Send, Users, Circle, LogOut } from 'lucide-react';
 
-const WORKER_URL = 'https://probable-space-eureka-g4q4pq5r4p5h99rp-8787.app.github.dev'; // Update this with your worker URL
+const WORKER_URL = process.env.WORKER_URL;
 
 // Component to handle message decryption
 function MessageContent({ message, tryDecrypt }) {

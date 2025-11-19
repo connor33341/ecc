@@ -24,6 +24,9 @@ const buildOptions = {
   },
   define: {
     'process.env.NODE_ENV': isDev ? '"development"' : '"production"',
+    'process.env.WORKER_URL': isDev 
+      ? '"https://probable-space-eureka-g4q4pq5r4p5h99rp-8787.app.github.dev"'
+      : '"https://ecc-worker.connor33341.workers.dev"',
   },
 };
 
